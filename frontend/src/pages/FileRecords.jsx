@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import api from '../api';
 import RecordModal from '../components/RecordModal';
 import DeleteModal from '../components/DeleteModal';
-import { Plus, Search, Trash2, Edit, ArrowLeft, Loader, CheckCircle, AlertCircle } from 'lucide-react';
+import { Plus, Search, Trash2, Edit, ArrowLeft, Loader, CheckCircle, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const PAGE_SIZE = 20;
 
@@ -11,8 +11,10 @@ export default function FileRecords() {
     const { stateId, fileType } = useParams();
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null); // Added error state
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
+    const [sortConfig, setSortConfig] = useState({ key: 'treatment_date', direction: 'desc' });
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingRecord, setEditingRecord] = useState(null);
 
@@ -29,13 +31,56 @@ export default function FileRecords() {
             })
             .catch(err => {
                 console.error("Failed to fetch records", err);
+                setError("Failed to load records. Please try again.");
                 setLoading(false);
             });
     };
 
     useEffect(() => {
+        console.log("FileRecords mounted. Fetching for:", stateId, fileType);
         fetchRecords();
     }, [stateId, fileType]);
+
+    console.log("Render Records:", records); // Debug Log
+
+    // Optimistic Save Handler
+    const handleSave = async (recordData) => {
+        const isEdit = !!recordData.id;
+
+        // 1. Optimistic Update
+        const optimisticRecord = {
+            ...recordData,
+            id: recordData.id || `temp-${Date.now()}`,
+            treatment_date: recordData.treatmentDate,
+            employee_name: recordData.employeeName,
+            postal_account: recordData.postalAccount,
+            status: recordData.status,
+            notes: recordData.status === 'completed' ? '' : recordData.notes
+        };
+
+        setRecords(prev => {
+            if (isEdit) {
+                return prev.map(r => r.id === recordData.id ? optimisticRecord : r);
+            }
+            return [optimisticRecord, ...prev];
+        });
+
+        setIsModalOpen(false);
+
+        // 2. Background API Call
+        try {
+            if (isEdit) {
+                await api.put(`/records/${recordData.id}`, recordData);
+            } else {
+                await api.post('/records', recordData);
+            }
+            fetchRecords();
+        } catch (err) {
+            console.error("Save failed", err);
+            alert("Failed to save record remotely. The list will revert.");
+            fetchRecords();
+        }
+    };
 
     const confirmDelete = async () => {
         if (!recordToDelete) return;
@@ -54,24 +99,59 @@ export default function FileRecords() {
         setIsDeleteModalOpen(true);
     };
 
-    // Filter & Pagination Logic
-    const filteredRecords = records.filter(r =>
-        r.employee_name.toLowerCase().includes(search.toLowerCase()) ||
-        (r.notes && r.notes.toLowerCase().includes(search.toLowerCase()))
-    );
+    const handleSort = (key) => {
+        let direction = 'asc';
+        if (sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
 
-    const totalPages = Math.ceil(filteredRecords.length / PAGE_SIZE);
-    const paginatedRecords = filteredRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    // Filter, Sort & Pagination Logic
+    // Filter, Sort & Pagination Logic
+    const safeRecords = Array.isArray(records) ? records : [];
+
+    const filteredRecords = safeRecords.filter(r => {
+        const nameMatch = r.employee_name?.toLowerCase().includes(search.toLowerCase()) || false;
+        const noteMatch = r.notes?.toLowerCase().includes(search.toLowerCase()) || false;
+        return nameMatch || noteMatch;
+    });
+
+    const sortedRecords = [...filteredRecords].sort((a, b) => {
+        // Handle specialized sorts if needed, otherwise string/number compare
+        const valA = a[sortConfig.key];
+        const valB = b[sortConfig.key];
+
+        if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    const totalPages = Math.ceil(sortedRecords.length / PAGE_SIZE);
+    const paginatedRecords = sortedRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
     const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('fr-DZ', { style: 'currency', currency: 'DZD' }).format(amount);
+        if (amount === null || amount === undefined || amount === '') return '0.00 DA';
+        const num = parseFloat(amount);
+        if (isNaN(num)) return 'Invalid Amount';
+        try {
+            return new Intl.NumberFormat('fr-DZ', { style: 'currency', currency: 'DZD' }).format(num);
+        } catch (e) {
+            return amount + ' DA';
+        }
     };
 
     const formatDate = (dateString) => {
-        return new Date(dateString).toLocaleDateString('en-GB', {
-            timeZone: 'Asia/Kuala_Lumpur',
-            year: 'numeric', month: 'short', day: 'numeric'
-        });
+        if (!dateString) return 'N/A';
+        try {
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return 'Invalid Date';
+            return date.toLocaleDateString('en-GB', {
+                year: 'numeric', month: 'short', day: 'numeric'
+            });
+        } catch (e) {
+            return 'Date Error';
+        }
     };
 
     return (
@@ -111,6 +191,14 @@ export default function FileRecords() {
                 </div>
             </div>
 
+            {/* Error Message */}
+            {error && (
+                <div className="mb-6 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-900 text-red-600 dark:text-red-200 px-4 py-3 rounded-md text-sm flex items-center">
+                    <AlertCircle className="w-5 h-5 mr-2" />
+                    {error}
+                </div>
+            )}
+
             {/* Table */}
             <div className="bg-white dark:bg-gray-800 shadow overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 transition-colors">
                 {loading ? (
@@ -121,10 +209,25 @@ export default function FileRecords() {
                             <thead className="bg-gray-50 dark:bg-gray-900">
                                 <tr>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Date</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Employee</th>
+                                    <th
+                                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-700"
+                                        onClick={() => handleSort('treatment_date')}
+                                    >
+                                        Date {sortConfig.key === 'treatment_date' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                                    </th>
+                                    <th
+                                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-700"
+                                        onClick={() => handleSort('employee_name')}
+                                    >
+                                        Employee {sortConfig.key === 'employee_name' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                                    </th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">CCP Account</th>
-                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Amount</th>
+                                    <th
+                                        className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-700"
+                                        onClick={() => handleSort('amount')}
+                                    >
+                                        Amount {sortConfig.key === 'amount' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                                    </th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Notes / Reason</th>
                                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                                 </tr>
@@ -187,13 +290,14 @@ export default function FileRecords() {
                         <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
                             <div>
                                 <p className="text-sm text-gray-700 dark:text-gray-300">
-                                    Showing <span className="font-medium">{(page - 1) * PAGE_SIZE + 1}</span> to <span className="font-medium">{Math.min(page * PAGE_SIZE, filteredRecords.length)}</span> of <span className="font-medium">{filteredRecords.length}</span> results
+                                    Showing <span className="font-medium">{(page - 1) * PAGE_SIZE + 1}</span> to <span className="font-medium">{Math.min(page * PAGE_SIZE, sortedRecords.length)}</span> of <span className="font-medium">{sortedRecords.length}</span> results
                                 </p>
                             </div>
                             <div>
                                 <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
                                     <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">
-                                        Previous
+                                        <span className="sr-only">Previous</span>
+                                        <ChevronLeft className="h-5 w-5" aria-hidden="true" />
                                     </button>
                                     {[...Array(totalPages)].map((_, i) => (
                                         <button
@@ -205,7 +309,8 @@ export default function FileRecords() {
                                         </button>
                                     ))}
                                     <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">
-                                        Next
+                                        <span className="sr-only">Next</span>
+                                        <ChevronRight className="h-5 w-5" aria-hidden="true" />
                                     </button>
                                 </nav>
                             </div>
@@ -220,7 +325,7 @@ export default function FileRecords() {
                 record={editingRecord}
                 stateId={stateId}
                 fileType={fileType}
-                onSave={fetchRecords}
+                onSave={handleSave}
             />
 
             <DeleteModal

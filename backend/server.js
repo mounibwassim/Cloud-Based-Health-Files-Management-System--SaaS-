@@ -1,213 +1,396 @@
 const express = require('express');
 const cors = require('cors');
-const db = require('./db');
-const app = express();
+const { Pool } = require('pg');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
+require('dotenv').config();
 
+const app = express();
+const port = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123';
+
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Routes
+// Database Connection
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL
+});
 
-// List all states
-app.get('/api/states', async (req, res) => {
+// Test DB
+pool.connect()
+    .then(() => console.log('Connected to PostgreSQL'))
+    .catch(err => console.error('Connection error', err.stack));
+
+// Handle unexpected errors on idle clients
+pool.on('error', (err, client) => {
+    console.error('Unexpected error on idle client', err);
+    process.exit(-1);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('UNCAUGHT EXCEPTION:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('UNHANDLED REJECTION:', reason);
+});
+
+// --- Step 1: Register Route ---
+app.post('/api/register', async (req, res) => {
+    let { username, password } = req.body;
     try {
-        const result = await db.query('SELECT * FROM states ORDER BY code ASC');
+        if (!username || !password) return res.status(400).json({ error: "Missing fields" });
+        username = username.trim();
+        password = password.trim();
+
+        // Check if user exists
+        const check = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+        if (check.rows.length > 0) return res.status(400).json({ error: "Username already taken" });
+
+        // Hash Password
+        const salt = await bcrypt.genSalt(10);
+        const hash = await bcrypt.hash(password, salt);
+
+        // Insert
+        const result = await pool.query(
+            'INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username, role',
+            [username, hash]
+        );
+
+        res.json({ success: true, user: result.rows[0] });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+// --- Step 3: Login Route ---
+app.post('/api/login', async (req, res) => {
+    let { username, password } = req.body;
+
+    try {
+        if (!username || !password) return res.status(400).json({ error: "Missing fields" });
+
+        // Force Trim
+        username = username.trim();
+        password = password.trim();
+
+        console.log(`[Login] Checking: '${username}'`);
+
+        // 1. Find User
+        const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+        if (result.rows.length === 0) {
+            console.log(`[Login] User '${username}' NOT found.`);
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        const user = result.rows[0];
+
+        // 2. Compare Password
+        const validPassword = await bcrypt.compare(password, user.password_hash);
+        console.log(`[Login] Password valid ? ${validPassword} `);
+
+        if (!validPassword) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        // 3. Generate Token
+        const token = jwt.sign(
+            { id: user.id, username: user.username, role: user.role },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        res.json({
+            success: true,
+            token,
+            user: { id: user.id, username: user.username, role: user.role }
+        });
+
+    } catch (err) {
+        console.error('[Login] Error', err);
+        res.status(500).json({ error: 'Server error during login' });
+    }
+});
+
+// Middleware to protect other routes
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return res.sendStatus(401);
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.sendStatus(403);
+        req.user = user;
+        next();
+    });
+};
+
+// --- Protected Data Routes ---
+
+app.get('/api/states', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const role = req.user.role;
+
+        let query = `
+            SELECT s.*, 
+            (
+                SELECT COUNT(*) FROM records r 
+                WHERE r.state_id = s.id
+                ${role !== 'admin' ? 'AND r.user_id = $1' : ''}
+            ) as record_count 
+            FROM states s 
+            ORDER BY code ASC
+        `;
+
+        const params = role !== 'admin' ? [userId] : [];
+        const result = await pool.query(query, params);
         res.json(result.rows);
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        res.status(500).json({ error: 'Database error' });
     }
 });
 
-// Get specific state by ID (code)
-app.get('/api/states/:id', async (req, res) => {
+app.get('/api/states/:id', authenticateToken, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+
+        const result = await pool.query('SELECT * FROM states WHERE code = $1', [id]);
+        if (result.rows.length === 0) return res.status(404).json({ error: 'State not found' });
+
+        // Fetch file counts
+        const userId = req.user.id;
+        const role = req.user.role;
+        const internalStateId = result.rows[0].id;
+
+        const filesQuery = `
+            SELECT f.id, f.name, f.display_name,
+            (
+                SELECT COUNT(*) FROM records r 
+                WHERE r.file_type_id = f.id 
+                AND r.state_id = $1
+                ${role !== 'admin' ? 'AND r.user_id = $2' : ''}
+            ) as count
+            FROM file_types f
+        `;
+
+        const params = [internalStateId];
+        if (role !== 'admin') params.push(userId);
+
+        const filesRes = await pool.query(filesQuery, params);
+
+        res.json({ ...result.rows[0], files: filesRes.rows });
+    } catch (err) {
+        console.error("Database Error:", err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// Get counts for state dashboard (Redundant but kept for safety if used elsewhere)
+app.get('/api/states/:id/counts', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const result = await db.query('SELECT * FROM states WHERE code = ?', [id]);
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'State not found' });
-        }
-        res.json(result.rows[0]);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
-    }
-});
+        const stateRes = await pool.query('SELECT id FROM states WHERE code = $1', [id]);
+        if (stateRes.rows.length === 0) return res.status(404).json({ error: 'State not found' });
+        const stateId = stateRes.rows[0].id;
 
-// Get record counts for a state
-app.get('/api/states/:id/counts', async (req, res) => {
-    try {
-        const { id } = req.params; // This is the state CODE (1-60)
+        const userId = req.user.id;
+        const role = req.user.role;
 
-        // We need internal state ID
-        const stateResult = await db.query('SELECT id FROM states WHERE code = ?', [id]);
-        if (stateResult.rows.length === 0) return res.status(404).json({ error: 'State not found' });
-        const internalStateId = stateResult.rows[0].id;
-
-        // Query: Join file_types with records to get count per type
-        // Use LEFT JOIN ensures we get 0 for types with no records if we grouped by file_types.
-        // But simpler: just group records by file_type_id and map manually or join.
-        // Let's do a LEFT JOIN from file_types to records
         const query = `
-            SELECT f.name, COUNT(r.id) as count
+            SELECT f.name, COUNT(r.id) as count 
             FROM file_types f
-            LEFT JOIN records r ON f.id = r.file_type_id AND r.state_id = ?
+            LEFT JOIN records r ON f.id = r.file_type_id AND r.state_id = $1
+            ${role !== 'admin' ? 'AND r.user_id = $2' : ''}
             GROUP BY f.name
         `;
+        const params = [stateId];
+        if (role !== 'admin') params.push(userId);
 
-        const result = await db.query(query, [internalStateId]);
-
-        // Convert array to object for easier lookup { surgery: 5, ivf: 0 }
-        const counts = result.rows.reduce((acc, row) => {
-            acc[row.name] = row.count;
-            return acc;
-        }, {});
-
+        const result = await pool.query(query, params);
+        const counts = {};
+        result.rows.forEach(row => {
+            counts[row.name] = parseInt(row.count);
+        });
         res.json(counts);
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        console.error("Counts Error:", err);
+        res.status(500).json({ error: 'Database error' });
     }
 });
 
-// List records for a state and file type
-app.get('/api/states/:stateId/files/:fileTypeId/records', async (req, res) => {
-    try {
-        const { stateId, fileTypeId } = req.params;
+// --- Records Routes ---
 
-        const typeResult = await db.query('SELECT id FROM file_types WHERE name = ?', [fileTypeId]);
-        if (typeResult.rows.length === 0) {
-            return res.status(404).json({ error: 'File type not found' });
+// 1. Get Records (Filtered)
+app.get('/api/states/:stateId/files/:fileType/records', authenticateToken, async (req, res) => {
+    try {
+        const { stateId, fileType } = req.params;
+        const userId = req.user.id;
+        const role = req.user.role;
+
+        console.log(`[GET Records] Request: Code=${stateId}, File=${fileType}, User=${userId}, Role=${role}`);
+
+        // 1. Resolve IDs explicitly to match POST logic
+        const stateRes = await pool.query('SELECT id FROM states WHERE code = $1', [stateId]);
+        const fileRes = await pool.query('SELECT id FROM file_types WHERE name = $1', [fileType]);
+
+        if (stateRes.rows.length === 0) {
+            console.log(`[GET Records] State code '${stateId}' not found.`);
+            return res.status(404).json({ error: "State not found" });
         }
-        const actualFileTypeId = typeResult.rows[0].id;
+        if (fileRes.rows.length === 0) {
+            console.log(`[GET Records] File type '${fileType}' not found.`);
+            return res.status(404).json({ error: "File type not found" });
+        }
 
-        const result = await db.query(
-            'SELECT * FROM records WHERE state_id = (SELECT id FROM states WHERE code = ?) AND file_type_id = ? ORDER BY treatment_date DESC',
-            [stateId, actualFileTypeId]
-        );
-        res.json(result.rows);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
-    }
-});
+        const internalStateId = stateRes.rows[0].id;
+        const internalFileId = fileRes.rows[0].id;
 
-// Add a new record
-app.post('/api/records', async (req, res) => {
-    try {
-        const { employeeName, postalAccount, amount, treatmentDate, stateId, fileType, status, notes } = req.body;
-
-        // Get internal IDs
-        const stateResult = await db.query('SELECT id FROM states WHERE code = ?', [stateId]);
-        if (stateResult.rows.length === 0) return res.status(404).json({ error: 'State not found' });
-        const internalStateId = stateResult.rows[0].id;
-
-        const typeResult = await db.query('SELECT id FROM file_types WHERE name = ?', [fileType]);
-        if (typeResult.rows.length === 0) return res.status(404).json({ error: 'File type not found' });
-        const internalFileTypeId = typeResult.rows[0].id;
-
-        const recordStatus = status || 'completed';
-        const recordNotes = notes || '';
-
-        const result = await db.query(
-            'INSERT INTO records (state_id, file_type_id, employee_name, postal_account, amount, treatment_date, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [internalStateId, internalFileTypeId, employeeName, postalAccount, amount, treatmentDate, recordStatus, recordNotes]
-        );
-
-        res.json({ message: 'Record added successfully', id: result.lastID });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-// Update a record
-app.put('/api/records/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { employeeName, postalAccount, amount, treatmentDate, status, notes } = req.body;
-
-        const recordStatus = status || 'completed';
-        const recordNotes = notes || '';
-
-        await db.query(
-            'UPDATE records SET employee_name = ?, postal_account = ?, amount = ?, treatment_date = ?, status = ?, notes = ? WHERE id = ?',
-            [employeeName, postalAccount, amount, treatmentDate, recordStatus, recordNotes, id]
-        );
-
-        res.json({ message: 'Record updated successfully' });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-// Delete a record
-app.delete('/api/records/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        await db.query('DELETE FROM records WHERE id = ?', [id]);
-        res.json({ message: 'Record deleted successfully' });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-// Export CSV
-app.get('/api/export', async (req, res) => {
-    try {
-        const { stateId, fileType } = req.query;
+        // 2. Query with direct ID linkage
         let query = `
-            SELECT r.*, s.name as state_name, f.display_name as file_type_name 
+            SELECT r.*, f.name as file_type_name
             FROM records r
-            JOIN states s ON r.state_id = s.id
             JOIN file_types f ON r.file_type_id = f.id
-            WHERE 1=1
+            WHERE r.state_id = $1
+            AND r.file_type_id = $2
         `;
-        const params = [];
+        const params = [internalStateId, internalFileId];
 
-        if (stateId) {
-            query += ` AND s.code = ?`;
-            params.push(stateId);
-        }
-
-        if (fileType) {
-            query += ` AND f.name = ?`;
-            params.push(fileType);
+        // 3. Apply Isolation
+        if (role !== 'admin') {
+            query += ` AND r.user_id = $3`;
+            params.push(userId);
         }
 
         query += ` ORDER BY r.treatment_date DESC`;
 
-        const result = await db.query(query, params);
-
-        // Manual CSV Generation
-        const headers = ['ID', 'State', 'File Type', 'Employee Name', 'CCP', 'Amount', 'Date', 'Status', 'Notes'];
-        const rows = result.rows.map(row => [
-            row.id,
-            row.state_name,
-            row.file_type_name,
-            `"${row.employee_name}"`,
-            row.postal_account,
-            row.amount,
-            new Date(row.treatment_date).toISOString(),
-            row.status || 'completed',
-            `"${(row.notes || '').replace(/"/g, '""')}"`
-        ]);
-
-        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-
-        res.header('Content-Type', 'text/csv');
-        res.header('Content-Disposition', 'attachment; filename="health_records_export.csv"');
-        res.send(csvContent);
+        const result = await pool.query(query, params);
+        console.log(`[GET Records] Found ${result.rows.length} records.`);
+        res.json(result.rows);
 
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        console.error("GET Records Error:", err);
+        res.status(500).json({ error: 'Database error' });
     }
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// 2. Create Record
+app.post('/api/records', authenticateToken, async (req, res) => {
+    try {
+        const { stateId, fileType, employeeName, postalAccount, amount, treatmentDate, notes, status } = req.body;
+        console.log(`[POST Record] UserID=${req.user?.id}, State=${stateId}, File=${fileType}, Name=${employeeName}`);
+
+        const stateRes = await pool.query('SELECT id FROM states WHERE code = $1', [stateId]);
+        const fileRes = await pool.query('SELECT id FROM file_types WHERE name = $1', [fileType]);
+
+        if (stateRes.rows.length === 0 || fileRes.rows.length === 0) {
+            return res.status(400).json({ error: 'Invalid State or File Type' });
+        }
+
+        const result = await pool.query(`
+            INSERT INTO records 
+            (state_id, file_type_id, employee_name, postal_account, amount, treatment_date, notes, status, user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING *
+        `, [
+            stateRes.rows[0].id,
+            fileRes.rows[0].id,
+            employeeName,
+            postalAccount,
+            amount,
+            treatmentDate,
+            notes,
+            status || 'completed',
+            req.user.id
+        ]);
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// 3. Update Record
+app.put('/api/records/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { employeeName, postalAccount, amount, treatmentDate, notes, status } = req.body;
+
+        const result = await pool.query(`
+            UPDATE records 
+            SET employee_name = $1, postal_account = $2, amount = $3, treatment_date = $4, notes = $5, status = $6, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $7
+            RETURNING *
+        `, [employeeName, postalAccount, amount, treatmentDate, notes, status, id]);
+
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Record not found' });
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// 4. Delete Record
+app.delete('/api/records/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query('DELETE FROM records WHERE id = $1', [id]);
+        res.json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// 5. Delete Account
+app.delete('/api/users/me', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        console.log(`[Delete Account] Deleting user ID: ${userId}`);
+        await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+        res.json({ success: true, message: 'Account deleted successfully' });
+    } catch (err) {
+        console.error('[Delete Account] Error:', err);
+        res.status(500).json({ error: 'Server error during account deletion' });
+    }
+});
+
+// 6. Analytics
+app.get('/api/analytics', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const role = req.user.role;
+
+        let query = `
+            SELECT s.name, COUNT(r.id) as count 
+            FROM states s 
+            LEFT JOIN records r ON s.id = r.state_id 
+        `;
+
+        const params = [];
+        if (role !== 'admin') {
+            query += ` AND r.user_id = $1 `;
+            params.push(userId);
+        }
+
+        query += ` GROUP BY s.name ORDER BY count DESC`;
+
+        const result = await pool.query(query, params);
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Analytics Error:", err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
 });

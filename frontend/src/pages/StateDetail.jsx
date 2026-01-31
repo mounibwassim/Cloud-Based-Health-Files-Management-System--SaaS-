@@ -16,7 +16,10 @@ export default function StateDetail() {
     const [counts, setCounts] = useState({});
     const [loading, setLoading] = useState(true);
 
+    const [error, setError] = useState(null);
+
     useEffect(() => {
+        console.log('Frontend attempting to fetch ID:', id);
         // Parallel fetch: State Details + Counts
         const fetchData = async () => {
             try {
@@ -29,6 +32,9 @@ export default function StateDetail() {
                 setLoading(false);
             } catch (err) {
                 console.error("Failed to fetch state data", err);
+                // Capture exact error message from backend if available
+                const msg = err.response?.data?.error || err.message;
+                setError(msg);
                 setLoading(false);
             }
         };
@@ -36,7 +42,17 @@ export default function StateDetail() {
     }, [id]);
 
     if (loading) return <div className="flex justify-center p-10"><Loader className="animate-spin text-indigo-500" /></div>;
-    if (!state) return <div className="p-10 text-center text-red-500">State not found</div>;
+
+    if (error) return (
+        <div className="p-10 text-center">
+            <h2 className="text-2xl text-red-600 font-bold mb-2">Error Loading State</h2>
+            <p className="text-gray-700 mb-4">{error}</p>
+            <p className="text-sm text-gray-500">Check console for details.</p>
+            <Link to="/" className="text-indigo-600 underline mt-4 inline-block">Go Back</Link>
+        </div>
+    );
+
+    if (!state) return <div className="p-10 text-center text-red-500">State not found (No Data)</div>;
 
     return (
         <div className="px-4 py-6 animate-in fade-in duration-300">
@@ -64,7 +80,7 @@ export default function StateDetail() {
                     return (
                         <Link
                             key={type.id}
-                            to={`/states/${state.code}/files/${type.id}`}
+                            to={`/states/${state.code}/files/${type.id}/records`}
                             className="group bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 flex flex-col items-center justify-center hover:shadow-lg hover:-translate-y-1 transition-all h-64 relative overflow-hidden"
                         >
                             {/* Badge */}

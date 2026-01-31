@@ -1,6 +1,6 @@
 import { AlertTriangle, X } from 'lucide-react';
 
-export default function DeleteModal({ isOpen, onClose, onConfirm }) {
+export default function DeleteModal({ isOpen, onClose, onConfirm, title = "Delete Record", message = "Are you sure you want to delete this record? This action cannot be undone." }) {
     if (!isOpen) return null;
 
     return (
@@ -9,9 +9,9 @@ export default function DeleteModal({ isOpen, onClose, onConfirm }) {
                 <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900 mb-4">
                     <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-200" />
                 </div>
-                <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-2">Delete Record</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-300 mb-6">
-                    Are you sure you want to delete this record? This action cannot be undone.
+                <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-2">{title}</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-300 mb-6 font-medium">
+                    {message}
                 </p>
                 <div className="flex justify-center space-x-3">
                     <button

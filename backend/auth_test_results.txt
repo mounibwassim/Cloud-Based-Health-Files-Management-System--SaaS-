@@ -1,0 +1,5 @@
+[START] Testing with user: test_user_1769872274130
+[REQ] POST /register
+[RES] Register Success: {"success":true,"user":{"id":4,"username":"test_user_1769872274130","role":"manager"}}
+[REQ] POST /login
+[RES] Login Success: {"success":true,"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NCwidXNlcm5hbWUiOiJ0ZXN0X3VzZXJfMTc2OTg3MjI3NDEzMCIsInJvbGUiOiJtYW5hZ2VyIiwiaWF0IjoxNzY5ODcyMjc2LCJleHAiOjE3Njk5NTg2NzZ9.0wus81pGXnAH7QZbJwl5Hxkwh7ChUoHSjINii5sgHMo","user":{"id":4,"username":"test_user_1769872274130","role":"manager"}}

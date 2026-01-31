@@ -45,38 +45,27 @@ export default function RecordModal({ isOpen, onClose, record, stateId, fileType
         setError(null);
     }, [record, isOpen]);
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = (e) => {
         e.preventDefault();
-        setLoading(true);
-        setError(null);
+        // No loading state needed - Instant Close
+        // setLoading(true); 
 
-        try {
-            const payload = {
-                ...formData,
-                stateId,
-                fileType,
-                treatmentDate: new Date(formData.treatmentDate).toISOString(),
-                // Explicitly ensure status is set
-                status: formData.status,
-                // Logic: If completed, note is irrelevant/cleared.
-                notes: formData.status === 'completed' ? '' : formData.notes
-            };
+        const payload = {
+            ...formData,
+            // Pass plain ID if editing
+            id: record ? record.id : null,
+            stateId,
+            fileType,
+            treatmentDate: formData.treatmentDate, // Keep as YYYY-MM-DD for consistency or ISO? Let parent handle.
+            // Explicitly ensure status is set
+            status: formData.status,
+            // Logic: If completed, note is irrelevant/cleared.
+            notes: formData.status === 'completed' ? '' : formData.notes
+        };
 
-            console.log('Sending Payload:', payload);
-
-            if (record) {
-                await api.put(`/records/${record.id}`, payload);
-            } else {
-                await api.post('/records', payload);
-            }
-            onSave();
-            onClose();
-        } catch (err) {
-            console.error(err);
-            setError('Failed to save record. Please check inputs.');
-        } finally {
-            setLoading(false);
-        }
+        // Instant Handoff
+        onSave(payload);
+        onClose();
     };
 
     if (!isOpen) return null;
@@ -140,48 +129,46 @@ export default function RecordModal({ isOpen, onClose, record, stateId, fileType
                             />
                         </div>
 
-                        {/* Status Selection */}
+                        {/* Status Selection - Large Buttons */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Status *</label>
                             <div className="flex space-x-4">
-                                <label className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors w-1/2 ${formData.status === 'completed' ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800' : 'border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
-                                    <input
-                                        type="radio"
-                                        name="status"
-                                        value="completed"
-                                        checked={formData.status === 'completed'}
-                                        onChange={() => setFormData({ ...formData, status: 'completed' })}
-                                        className="sr-only"
-                                    />
-                                    <CheckCircle className={`w-5 h-5 mr-2 ${formData.status === 'completed' ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`} />
-                                    <span className={`text-sm font-medium ${formData.status === 'completed' ? 'text-green-800 dark:text-green-200' : 'text-gray-600 dark:text-gray-400'}`}>Completed</span>
-                                </label>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, status: 'completed', notes: '' })}
+                                    className={`flex-1 p-4 rounded-lg flex items-center justify-center border-2 transition-all ${formData.status === 'completed'
+                                        ? 'bg-green-100 border-green-500 text-green-700 dark:bg-green-900/30 dark:border-green-500 dark:text-green-300 shadow-sm'
+                                        : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-400'
+                                        }`}
+                                >
+                                    <CheckCircle className={`w-6 h-6 mr-2 ${formData.status === 'completed' ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`} />
+                                    <span className="font-bold text-lg">Complete</span>
+                                </button>
 
-                                <label className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors w-1/2 ${formData.status === 'incomplete' ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : 'border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
-                                    <input
-                                        type="radio"
-                                        name="status"
-                                        value="incomplete"
-                                        checked={formData.status === 'incomplete'}
-                                        onChange={() => setFormData({ ...formData, status: 'incomplete' })}
-                                        className="sr-only"
-                                    />
-                                    <AlertCircle className={`w-5 h-5 mr-2 ${formData.status === 'incomplete' ? 'text-red-600 dark:text-red-400' : 'text-gray-400'}`} />
-                                    <span className={`text-sm font-medium ${formData.status === 'incomplete' ? 'text-red-800 dark:text-red-200' : 'text-gray-600 dark:text-gray-400'}`}>Incomplete</span>
-                                </label>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, status: 'incomplete' })}
+                                    className={`flex-1 p-4 rounded-lg flex items-center justify-center border-2 transition-all ${formData.status === 'incomplete'
+                                        ? 'bg-red-100 border-red-500 text-red-700 dark:bg-red-900/30 dark:border-red-500 dark:text-red-300 shadow-sm'
+                                        : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-400'
+                                        }`}
+                                >
+                                    <AlertCircle className={`w-6 h-6 mr-2 ${formData.status === 'incomplete' ? 'text-red-600 dark:text-red-400' : 'text-gray-400'}`} />
+                                    <span className="font-bold text-lg">Not Complete</span>
+                                </button>
                             </div>
                         </div>
 
                         {/* Conditional Notes */}
                         {formData.status === 'incomplete' && (
                             <div className="animate-in fade-in slide-in-from-top-2 duration-200">
-                                <label className="block text-sm font-medium text-red-700 dark:text-red-300 mb-1">Reason for Incompletion / Missing Documents *</label>
+                                <label className="block text-sm font-medium text-red-700 dark:text-red-300 mb-1">Reason for Incompletion</label>
                                 <textarea
                                     rows="3"
                                     className="w-full px-3 py-2 border border-red-300 dark:border-red-800 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 bg-red-50 dark:bg-red-900/10 text-gray-900 dark:text-white"
                                     value={formData.notes}
                                     onChange={e => setFormData({ ...formData, notes: e.target.value })}
-                                    placeholder="Please describe why this is incomplete..."
+                                    placeholder="Describe why this file is incomplete..."
                                     required
                                 />
                             </div>
@@ -198,11 +185,11 @@ export default function RecordModal({ isOpen, onClose, record, stateId, fileType
                         </button>
                         <button
                             type="submit"
-                            disabled={loading}
+                            disabled={false}
                             className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 flex items-center disabled:opacity-50 transition-colors"
                         >
                             <Save className="w-4 h-4 mr-2" />
-                            {loading ? 'Saving...' : 'Save Record'}
+                            Save Record
                         </button>
                     </div>
                 </form>

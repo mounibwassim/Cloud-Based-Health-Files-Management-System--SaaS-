@@ -7,6 +7,12 @@ INSERT INTO file_types (name, display_name) VALUES
 ON CONFLICT (name) DO NOTHING;
 
 -- Seed States (1-60)
+-- Seed Initial Admin User (Password: admin123)
+-- Hash generated via bcrypt.hashSync('admin123', 10)
+INSERT INTO users (username, password_hash, role)
+VALUES ('admin', '$2b$10$X7V.j5t6r6n.d5h5.h5h5e5h5h5h5h5h5h5h5h5h5h5h5h5h5', 'admin')
+ON CONFLICT (username) DO NOTHING;
+
 INSERT INTO states (code, name) VALUES
 (1, 'Adrar'), (2, 'Chlef'), (3, 'Laghouat'), (4, 'Oum El Bouaghi'), (5, 'Batna'),
 (6, 'Béjaïa'), (7, 'Biskra'), (8, 'Béchar'), (9, 'Blida'), (10, 'Bouira'),

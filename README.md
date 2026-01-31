@@ -23,27 +23,6 @@ Built with React (Frontend), Node.js/Express (Backend), and PostgreSQL.
 3. Seed the initial data (States 1-60, File Types):
    ```bash
    psql -U postgres -d health_files_db -f deployment/seed.sql
-   ```
-4. Verify data:
-   ```sql
-   SELECT count(*) FROM states; -- Should be 60
-   ```
-
-### 2. Backend Setup
-1. Navigate to backend:
-   ```bash
-   cd backend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Configure Environment:
-   Update `.env` file if your database credentials differ:
-   ```
-   DATABASE_URL=postgres://postgres:password@localhost:5432/health_files_db
-   PORT=5000
-   ```
 4. Start the server:
    ```bash
    npm start
@@ -59,20 +38,6 @@ Built with React (Frontend), Node.js/Express (Backend), and PostgreSQL.
    ```bash
    npm install
    ```
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-   App will run at `http://localhost:5173`.
-
-## Features
-- **States List**: Grid view of all 60 states.
-- **State Details**: Access to Surgery, IVF, Eye, and Labs files.
-- **Records Management**: Table view with Search, Sort by Date, and Pagination.
-- **CRUD**: Add, Edit, Delete records safely.
-- **Export**: Download CSV of records for any file type.
-- **Localization**: Dates displayed in `Asia/Kuala_Lumpur` timezone (as requested).
-
 ## API Endpoints
 - `GET /api/states`: List all states.
 - `GET /api/states/:id`: Get state details.

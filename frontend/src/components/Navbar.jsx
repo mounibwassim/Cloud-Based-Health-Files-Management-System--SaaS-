@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { Moon, Sun, User, Edit2, Check, HeartPulse } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Moon, Sun, User, LogOut, Check, HeartPulse, Trash2 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import DeleteModal from './DeleteModal';
 
 export default function Navbar() {
     // Theme State
@@ -8,12 +10,29 @@ export default function Navbar() {
         return localStorage.getItem('theme') === 'dark';
     });
 
-    // Profile State
-    const [managerName, setManagerName] = useState(() => {
-        return localStorage.getItem('managerName') || 'Manager';
-    });
-    const [isEditingName, setIsEditingName] = useState(false);
-    const [tempName, setTempName] = useState(managerName);
+    // Auth State
+    const { user, logout, deleteAccount } = useAuth();
+    const navigate = useNavigate();
+
+    // Modal State
+
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+    const confirmDeleteAccount = async () => {
+        const res = await deleteAccount();
+        if (res.success) {
+            alert("Account deleted.");
+            navigate('/login');
+        } else {
+            alert("Failed to delete: " + res.error);
+        }
+        setIsDeleteModalOpen(false);
+    };
+
+    const handleDeleteClick = () => {
+        console.log("Delete button clicked!");
+        setIsDeleteModalOpen(true);
+    };
 
     // Apply Theme
     useEffect(() => {
@@ -26,11 +45,9 @@ export default function Navbar() {
         }
     }, [darkMode]);
 
-    // Handle Profile Update
-    const saveName = () => {
-        setManagerName(tempName);
-        localStorage.setItem('managerName', tempName);
-        setIsEditingName(false);
+    const handleLogout = () => {
+        logout();
+        navigate('/login');
     };
 
     return (
@@ -38,7 +55,7 @@ export default function Navbar() {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex justify-between h-16 items-center">
                     {/* Logo & Title */}
-                    <Link to="/" className="flex items-center space-x-3 group">
+                    <Link to="/" className="flex items-center space-x-3 group mr-8">
                         <div className="bg-indigo-600 p-2 rounded-lg group-hover:bg-indigo-700 transition-colors">
                             <HeartPulse className="h-6 w-6 text-white" />
                         </div>
@@ -47,37 +64,32 @@ export default function Navbar() {
                         </span>
                     </Link>
 
+                    {/* Navigation Links */}
+                    <div className="hidden md:flex space-x-4 flex-1">
+                        <Link to="/" className="text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                            Dashboard
+                        </Link>
+                        <Link to="/analytics" className="text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                            Analytics
+                        </Link>
+                    </div>
+
                     {/* Right Section: Profile & Theme */}
-                    <div className="flex items-center space-x-6">
+                    <div className="flex items-center space-x-4">
 
-                        {/* Manager Profile */}
-                        <div className="flex items-center space-x-2 bg-gray-50 dark:bg-gray-700 px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-600">
-                            <div className="bg-indigo-100 dark:bg-indigo-900 p-1 rounded-full">
-                                <User className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
+                        {/* User Profile */}
+                        {user && (
+                            <div className="flex items-center space-x-2 bg-gray-50 dark:bg-gray-700 px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-600">
+                                <div className="bg-indigo-100 dark:bg-indigo-900 p-1 rounded-full">
+                                    <User className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
+                                </div>
+                                <span className="text-sm font-medium text-gray-700 dark:text-gray-200 mr-1">
+                                    {user.username}
+                                </span>
                             </div>
+                        )}
 
-                            {isEditingName ? (
-                                <div className="flex items-center">
-                                    <input
-                                        type="text"
-                                        value={tempName}
-                                        onChange={(e) => setTempName(e.target.value)}
-                                        className="w-24 text-sm bg-white dark:bg-gray-600 border border-indigo-300 rounded px-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:text-white"
-                                        autoFocus
-                                    />
-                                    <button onClick={saveName} className="ml-2 text-green-600 hover:text-green-700">
-                                        <Check className="h-4 w-4" />
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="flex items-center group cursor-pointer" onClick={() => { setTempName(managerName); setIsEditingName(true); }}>
-                                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200 mr-2 max-w-[100px] truncate">
-                                        {managerName}
-                                    </span>
-                                    <Edit2 className="h-3 w-3 text-gray-400 group-hover:text-indigo-500 opacity-0 group-hover:opacity-100 transition-all" />
-                                </div>
-                            )}
-                        </div>
+
 
                         {/* Theme Toggle */}
                         <button
@@ -88,9 +100,27 @@ export default function Navbar() {
                             {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
                         </button>
 
+
+
+                        {/* Logout */}
+                        <button
+                            onClick={handleLogout}
+                            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors"
+                            title="Logout"
+                        >
+                            <LogOut className="h-5 w-5" />
+                        </button>
                     </div>
                 </div>
             </div>
+
+            <DeleteModal
+                isOpen={isDeleteModalOpen}
+                onClose={() => setIsDeleteModalOpen(false)}
+                onConfirm={confirmDeleteAccount}
+                title="CRITICAL WARNING"
+                message="Are you sure you want to PERMANENTLY DELETE your account? This cannot be undone."
+            />
         </nav>
     );
 }

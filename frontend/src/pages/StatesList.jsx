@@ -9,11 +9,20 @@ export default function StatesList() {
     const [error, setError] = useState(null);
 
     useEffect(() => {
+        const cached = sessionStorage.getItem('states_data');
+        if (cached) {
+            console.log('Using cached states');
+            setStates(JSON.parse(cached));
+            setLoading(false);
+            return;
+        }
+
         console.log('Fetching states...');
         api.get('/states')
             .then(res => {
                 console.log('States fetched:', res.data);
                 setStates(res.data);
+                sessionStorage.setItem('states_data', JSON.stringify(res.data));
                 setLoading(false);
             })
             .catch(err => {
