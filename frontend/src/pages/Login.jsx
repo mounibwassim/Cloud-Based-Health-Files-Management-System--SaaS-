@@ -164,11 +164,11 @@ export default function Login() {
                             <div className="flex items-center justify-between">
                                 {mode === 'login' && (
                                     <>
-                                        <div className="text-sm">
+                                        {/* <div className="text-sm">
                                             <button type="button" onClick={() => setMode('signup')} className="font-medium text-indigo-600 hover:text-indigo-500">
                                                 Create Account
                                             </button>
-                                        </div>
+                                        </div> */}
                                     </>
                                 )}
 
