@@ -3,6 +3,7 @@ import StatesList from './pages/StatesList';
 import StateDetail from './pages/StateDetail';
 import FileRecords from './pages/FileRecords';
 import Analytics from './pages/Analytics';
+import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Navbar from './components/Navbar';
 import { AuthProvider } from './context/AuthContext';
@@ -19,6 +20,7 @@ function Layout() {
             <Route path="/states/:id" element={<StateDetail />} />
             <Route path="/states/:stateId/files/:fileType/records" element={<FileRecords />} />
             <Route path="/analytics" element={<Analytics />} />
+            <Route path="/settings" element={<Settings />} />
             {/* Fallback for unknown routes inside protected area */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Moon, Sun, User, LogOut, Check, HeartPulse, Trash2 } from 'lucide-react';
+import { Moon, Sun, User, LogOut, Check, HeartPulse, Trash2, Settings } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import DeleteModal from './DeleteModal';
 
@@ -110,6 +110,17 @@ export default function Navbar() {
                         >
                             <LogOut className="h-5 w-5" />
                         </button>
+
+                        {/* Admin Settings Link */}
+                        {user && user.role === 'admin' && (
+                            <Link
+                                to="/settings"
+                                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors"
+                                title="Admin Settings"
+                            >
+                                <Settings className="h-5 w-5" />
+                            </Link>
+                        )}
                     </div>
                 </div>
             </div>

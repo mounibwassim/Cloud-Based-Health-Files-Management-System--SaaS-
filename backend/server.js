@@ -95,6 +95,9 @@ app.post('/api/login', async (req, res) => {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
+        // Update Last Login
+        await pool.query('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
+
         // 3. Generate Token
         const token = jwt.sign(
             { id: user.id, username: user.username, role: user.role },
@@ -157,6 +160,41 @@ const authenticateToken = (req, res, next) => {
         next();
     });
 };
+
+// --- Admin Routes ---
+
+app.get('/api/admin/users', authenticateToken, async (req, res) => {
+    if (req.user.role !== 'admin') return res.sendStatus(403);
+    try {
+        const result = await pool.query(`
+            SELECT u.id, u.username, u.role, u.created_at, u.last_login,
+            COUNT(r.id) as records_count
+            FROM users u
+            LEFT JOIN records r ON u.id = r.user_id
+            GROUP BY u.id
+            ORDER BY u.created_at DESC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.delete('/api/admin/users/:id', authenticateToken, async (req, res) => {
+    if (req.user.role !== 'admin') return res.sendStatus(403);
+    try {
+        // Prevent deleting yourself
+        if (parseInt(req.params.id) === req.user.id) {
+            return res.status(400).json({ error: "Cannot delete your own account" });
+        }
+        await pool.query('DELETE FROM users WHERE id = $1', [req.params.id]);
+        res.json({ success: true, message: "User deleted" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
 
 // --- Protected Data Routes ---
 
