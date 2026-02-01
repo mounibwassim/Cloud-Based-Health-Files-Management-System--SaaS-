@@ -15,7 +15,7 @@ export default function FileRecords() {
     const { user } = useAuth();
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null); // Added error state
+    const [error, setError] = useState(null);
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
     const [sortConfig, setSortConfig] = useState({ key: 'treatment_date', direction: 'desc' });
@@ -61,7 +61,7 @@ export default function FileRecords() {
             doc.setFontSize(18);
             doc.text(`State ${stateId} - ${fileType.toUpperCase()} Records`, 14, 22);
             doc.setFontSize(11);
-            doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 30);
+            doc.text(`Generated: ${new Date().toLocaleDateString()} - by ${user?.username || 'Unknown'}`, 14, 30);
 
             // Table Data
             const tableColumn = ["Status", "Date", "Employee Name", "CCP Account", "Amount", "Notes"];
@@ -86,7 +86,20 @@ export default function FileRecords() {
                 startY: 40,
                 styles: { fontSize: 10, cellPadding: 3 },
                 headStyles: { fillColor: [79, 70, 229] }, // Indigo-600
-                alternateRowStyles: { fillColor: [240, 240, 240] }
+                alternateRowStyles: { fillColor: [240, 240, 240] },
+                didParseCell: (data) => {
+                    // Color Logic
+                    if (data.section === 'body' && data.column.index === 0) {
+                        const text = data.cell.raw;
+                        if (text === 'Completed') {
+                            data.cell.styles.textColor = [22, 163, 74]; // Green-600
+                            data.cell.styles.fontStyle = 'bold';
+                        } else {
+                            data.cell.styles.textColor = [220, 38, 38]; // Red-600
+                            data.cell.styles.fontStyle = 'bold';
+                        }
+                    }
+                }
             });
 
             // Save
@@ -166,13 +179,7 @@ export default function FileRecords() {
     // Filter, Sort & Pagination Logic
     const safeRecords = Array.isArray(records) ? records : [];
 
-    // Client-side filtering is no longer needed for search as it's server-side
-    // But we keep it if we want to filter logically? No, server does it.
-    // However, we might want to keep it if the user types faster than debounce? 
-    // Actually, we replace client-side filter with direct use of safeRecords
-
     const sortedRecords = [...safeRecords].sort((a, b) => {
-        // Handle specialized sorts if needed, otherwise string/number compare
         const valA = a[sortConfig.key];
         const valB = b[sortConfig.key];
 
