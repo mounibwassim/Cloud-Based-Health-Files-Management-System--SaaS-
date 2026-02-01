@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../api';
+import { useAuth } from '../context/AuthContext';
 import RecordModal from '../components/RecordModal';
 import DeleteModal from '../components/DeleteModal';
 import { Plus, Search, Trash2, Edit, ArrowLeft, Loader, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
@@ -11,6 +12,7 @@ const PAGE_SIZE = 20;
 
 export default function FileRecords() {
     const { stateId, fileType } = useParams();
+    const { user } = useAuth();
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null); // Added error state
