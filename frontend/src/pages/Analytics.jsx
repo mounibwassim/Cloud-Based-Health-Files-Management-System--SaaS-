@@ -12,10 +12,18 @@ export default function Analytics() {
             .then(res => {
                 // Backend returns [{ name: 'Adrar', count: 10 }, ...]
                 // Convert count to number just in case
-                const formatted = res.data.map(item => ({
-                    ...item,
-                    count: parseInt(item.count)
-                }));
+                const formatted = res.data.map(item => {
+                    let name = item.name;
+                    if (name === 'Algeria Central') name = 'Algeria C';
+                    if (name === 'Algeria East') name = 'Algeria E';
+                    if (name === 'Algeria West') name = 'Algeria W';
+
+                    return {
+                        ...item,
+                        name,
+                        count: parseInt(item.count)
+                    };
+                });
                 setData(formatted);
                 setLoading(false);
             })

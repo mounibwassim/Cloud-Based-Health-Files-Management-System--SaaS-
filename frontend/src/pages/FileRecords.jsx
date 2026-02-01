@@ -216,7 +216,7 @@ export default function FileRecords() {
                     <input
                         type="text"
                         className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md leading-5 bg-white dark:bg-gray-700 placeholder-gray-500 text-gray-900 dark:text-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors"
-                        placeholder="Search by CCP Account..."
+                        placeholder="Search by CCP..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
