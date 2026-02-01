@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { Pool } = require('pg');
+
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 require('dotenv').config();
@@ -13,21 +13,15 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123';
 app.use(cors());
 app.use(express.json());
 
-// Database Connection
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL
-});
+// Database Connection (Import from db.js)
+const pool = require('./db');
 
-// Test DB
-pool.connect()
+// Test DB Connection
+pool.query('SELECT NOW()')
     .then(() => console.log('Connected to PostgreSQL'))
     .catch(err => console.error('Connection error', err.stack));
 
-// Handle unexpected errors on idle clients
-pool.on('error', (err, client) => {
-    console.error('Unexpected error on idle client', err);
-    process.exit(-1);
-});
+
 
 process.on('uncaughtException', (err) => {
     console.error('UNCAUGHT EXCEPTION:', err);
