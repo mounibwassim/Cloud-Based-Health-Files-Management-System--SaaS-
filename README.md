@@ -27,6 +27,16 @@ A robust, cloud-native application designed to digitize and manage health record
 - **No-Reset Policy**: strict security model where passwords cannot be reset by users, only by Admins via explicit intervention.
 - **Visual Excellence**: Dark Mode, Glassmorphism UI, and animated transitions.
 
+### 5. Advanced Financial Calculations (Surgery)
+- **Automatic Reimbursement**: Specifically for Surgery records, the system calculates a 60% reimbursement rate (نسبة التخليص) automatically upon data entry and includes it in financial exports.
+
+### 6. Multi-Tier Management Hierarchy
+- **Manager Role**: Introduced a middle-management layer. Managers can oversee their specific team's productivity, manage employee credentials, and audit local records without accessing global Admin settings.
+
+### 7. Conditional Export Engine
+- **Status-Based Filtering**: Users can now filter PDF exports by "Complete", "Incomplete", or "All" status, allowing for targeted follow-ups on pending files.
+- **Arabic Localization**: Automated translation of document titles (e.g., "Surgery" to "العمليات الجراحية") for official compliance.
+
 ---
 
 ## 🏗️ Architecture

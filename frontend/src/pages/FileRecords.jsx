@@ -4,6 +4,7 @@ import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import RecordModal from '../components/RecordModal';
 import DeleteModal from '../components/DeleteModal';
+import ExportModal from '../components/ExportModal';
 import { Plus, Search, Trash2, Edit, ArrowLeft, Loader, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -52,10 +53,40 @@ export default function FileRecords() {
         return () => clearTimeout(delayDebounceFn);
     }, [search, stateId, fileType]);
 
+    // Export Filter State
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
+    // Translation Map
+    const translationMap = {
+        'surgery': 'العمليات الجراحية',
+        'cns': 'الصندوق الوطني',
+        'casnos': 'كازنوس',
+        'ivf': 'التلقيح الاصطناعي',
+        'lab': 'المخبر',
+        'ophthalmology': 'طب العيون',
+        'radiology': 'الأشعة',
+        'transport': 'النقل الصحي',
+        'dialysis': 'تصفية الدم'
+    };
+
     // Handle Download (PDF)
-    const handleDownload = async () => {
+    const handleDownloadClick = () => {
+        setIsExportModalOpen(true);
+    };
+
+    const generatePDF = async (filterScope) => {
+        setIsExportModalOpen(false);
+
         try {
             const doc = new jsPDF();
+
+            // Filter Data based on Scope
+            let exportData = [...records];
+            if (filterScope === 'completed') {
+                exportData = exportData.filter(r => r.status === 'completed');
+            } else if (filterScope === 'incomplete') {
+                exportData = exportData.filter(r => r.status === 'incomplete' || r.status === 'pending');
+            }
 
             // Load Arabic Font
             try {
@@ -66,67 +97,76 @@ export default function FileRecords() {
 
                     await new Promise((resolve, reject) => {
                         reader.onloadend = () => {
-                            if (!reader.result) {
-                                reject("Empty reader result");
-                                return;
-                            }
-                            // reader.result is "data:font/ttf;base64,....."
-                            // We need just the base64 part
+                            if (!reader.result) { console.warn("Empty font"); resolve(); return; }
                             const base64data = reader.result.toString().split(',')[1];
                             if (base64data) {
                                 doc.addFileToVFS('Amiri-Regular.ttf', base64data);
                                 doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
                                 doc.setFont('Amiri');
-                                console.log("Arabic font loaded successfully");
                             }
                             resolve();
                         };
-                        reader.onerror = reject;
+                        reader.onerror = resolve; // Continue even if font fails
                         reader.readAsDataURL(blob);
                     });
-                } else {
-                    console.warn("Amiri font not found at /fonts/Amiri-Regular.ttf");
                 }
             } catch (e) {
-                console.warn("Could not load Arabic font, falling back to default.", e);
+                console.warn("Font load failed", e);
             }
 
-            // Header
+            // Title Logic
+            const arabicTitle = translationMap[fileType] || fileType.toUpperCase();
+
             doc.setFontSize(18);
-            doc.text(`State ${stateId} - ${fileType.toUpperCase()} Records`, 14, 22);
-            doc.setFontSize(11);
-            doc.text(`Generated: ${new Date().toLocaleDateString()} - by ${user?.username || 'Unknown'}`, 14, 30);
+            // Right-align Arabic title for better look, or Center
+            doc.text(`${arabicTitle} - ${stateId}`, 200, 20, { align: 'right', lang: 'ar' });
 
-            // Table Data
-            const tableColumn = ["Status", "Date", "Employee Name", "CCP", "Amount", "Notes"];
+            doc.setFontSize(10);
+            doc.text(`Scope: ${filterScope.toUpperCase()} | Generated: ${new Date().toLocaleDateString()}`, 14, 30);
 
-            // ADMIN VISIBILITY ADDITION
-            if (user?.role === 'admin') {
-                tableColumn.push("Created By"); // We technically don't have the data yet, but requested strictly.
-                // Note: The backend currently returns 'r.*'. Ideally we should join to get 'username'. 
-                // However, without changing the backend query to JOIN users, we can't show the name.
-                // I will update the backend query in the next step to ensure 'creator_username' is available.
-                // For now, I will use 'user_id' if available or empty.
+            // Columns
+            // 1. Serial Number (الرقم التسلسلي)
+            // 2. Status
+            // 3. Date
+            // 4. Employee Name
+            // 5. CCP
+            // 6. Reimbursement (If Surgery)
+            // 7. Amount
+            // 8. Notes
+
+            const isSurgery = fileType === 'surgery' || fileType === 'operations';
+
+            const tableColumn = ["#", "الرقم التسلسلي", "Status", "Date", "Employee Name", "CCP"];
+
+            if (isSurgery) {
+                tableColumn.push("Reimbursement (60%)");
             }
+
+            tableColumn.push("Amount");
+            tableColumn.push("Notes");
 
             const tableRows = [];
 
-            records.forEach(record => {
-                const recordData = [
-                    record.status === 'completed' ? 'Completed' : 'Incomplete',
+            exportData.forEach((record, index) => {
+                const row = [
+                    index + 1, // Local Index
+                    record.serial_number || (index + 1), // DB Serial Number
+                    record.status === 'completed' ? 'Done' : 'Pending',
                     new Date(record.treatment_date).toLocaleDateString(),
                     record.employee_name,
-                    record.postal_account,
-                    `${record.amount} DA`,
-                    record.notes || '--'
+                    record.postal_account
                 ];
 
-                if (user?.role === 'admin') {
-                    // Placeholder until backend update
-                    recordData.push(record.username || `User ${record.user_id}`);
+                if (isSurgery) {
+                    // Logic: Use stored reimbursement OR calculate on fly
+                    const reimb = record.reimbursement_amount || (record.amount * 0.60);
+                    row.push(`${new Intl.NumberFormat('fr-DZ', { style: 'currency', currency: 'DZD' }).format(reimb)}`);
                 }
 
-                tableRows.push(recordData);
+                row.push(`${record.amount} DA`);
+                row.push(record.notes || '');
+
+                tableRows.push(row);
             });
 
             // Generate Table
@@ -135,29 +175,26 @@ export default function FileRecords() {
                 body: tableRows,
                 startY: 40,
                 styles: {
-                    fontSize: 10,
-                    cellPadding: 3,
-                    font: 'Amiri' // Use the font
+                    fontSize: 9,
+                    cellPadding: 2,
+                    font: 'Amiri', // Use Arabic font
+                    halign: 'right' // Arabic preference usually
                 },
-                headStyles: { fillColor: [79, 70, 229] }, // Indigo-600
-                alternateRowStyles: { fillColor: [240, 240, 240] },
+                headStyles: { fillColor: [79, 70, 229], halign: 'center' },
+                columnStyles: {
+                    0: { halign: 'center', cellWidth: 10 }, // Index
+                    1: { halign: 'center', cellWidth: 20 }, // Serial
+                    // Adjust others as needed
+                },
                 didParseCell: (data) => {
-                    // Color Logic
-                    if (data.section === 'body' && data.column.index === 0) {
-                        const text = data.cell.raw;
-                        if (text === 'Completed') {
-                            data.cell.styles.textColor = [22, 163, 74]; // Green-600
-                            data.cell.styles.fontStyle = 'bold';
-                        } else {
-                            data.cell.styles.textColor = [220, 38, 38]; // Red-600
-                            data.cell.styles.fontStyle = 'bold';
-                        }
+                    if (data.section === 'body' && data.column.index === 2) {
+                        if (data.cell.raw === 'Done') data.cell.styles.textColor = [22, 163, 74];
+                        else data.cell.styles.textColor = [220, 38, 38];
                     }
                 }
             });
 
-            // Save
-            doc.save(`records_${stateId}_${fileType}.pdf`);
+            doc.save(`records_${stateId}_${fileType}_${filterScope}.pdf`);
         } catch (err) {
             console.error("PDF generation failed", err);
             alert("Failed to generate PDF.");
@@ -282,7 +319,7 @@ export default function FileRecords() {
                 </div>
                 <div className="flex space-x-2">
                     <button
-                        onClick={handleDownload}
+                        onClick={handleDownloadClick}
                         className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none transition-colors"
                     >
                         <FileText className="w-4 h-4 mr-2" /> Download PDF
@@ -487,6 +524,12 @@ export default function FileRecords() {
                 isOpen={isDeleteModalOpen}
                 onClose={() => setIsDeleteModalOpen(false)}
                 onConfirm={confirmDelete}
+            />
+
+            <ExportModal
+                isOpen={isExportModalOpen}
+                onClose={() => setIsExportModalOpen(false)}
+                onConfirm={generatePDF}
             />
         </div>
     );

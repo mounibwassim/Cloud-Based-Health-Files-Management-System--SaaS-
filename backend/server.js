@@ -117,30 +117,53 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// 🔒 ADMIN ONLY: Create a New Employee
-app.post('/api/admin/add-user', async (req, res) => {
-    const { username, password, adminUsername } = req.body;
+// 🔒 ADMIN & MANAGER: Create a New User (Manager or Employee)
+app.post('/api/users/add', authenticateToken, async (req, res) => {
+    const { username, password, role } = req.body;
+    const creatorRole = req.user.role;
+    const creatorId = req.user.id;
 
     try {
-        // 1. Security Check: Verify the person asking IS an admin
-        // (In a perfect world we check the token, but for now we check the adminUsername)
-        const adminCheck = await pool.query('SELECT role FROM users WHERE username = $1', [adminUsername]);
-
-        if (adminCheck.rows.length === 0 || adminCheck.rows[0].role !== 'admin') {
-            return res.status(403).json({ error: "Access Denied: Only Admins can add employees." });
+        // 1. Permission Check
+        if (creatorRole !== 'admin' && creatorRole !== 'manager') {
+            return res.status(403).json({ error: "Access Denied" });
         }
 
-        // 2. Hash the new employee's password
+        // 2. Validate Target Role
+        let targetRole = 'user'; // Default to employee
+        let managerId = null;
+
+        if (creatorRole === 'admin') {
+            // Admin can create 'manager' or 'user'
+            if (role === 'manager') targetRole = 'manager';
+            else targetRole = 'user';
+
+            // If Admin creates a user, we might want to assign a manager? 
+            // For now, let's keep manager_id null if created by admin directly, 
+            // OR maybe pass it in body if we want Admin to assign.
+            // Simplified: Admin creates unmanaged employees or managers.
+        } else if (creatorRole === 'manager') {
+            // Manager can ONLY create 'user'
+            if (role === 'manager') return res.status(403).json({ error: "Managers cannot create other Managers." });
+            targetRole = 'user';
+            managerId = creatorId; // Assign to this manager
+        }
+
+        // 3. Check if user exists
+        const check = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+        if (check.rows.length > 0) return res.status(400).json({ error: "Username already taken" });
+
+        // 4. Hash Password
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // 3. Insert the new Employee (Role is always 'user')
+        // 5. Insert
         const newUser = await pool.query(
-            "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, 'user') RETURNING id, username",
-            [username, hashedPassword]
+            "INSERT INTO users (username, password_hash, role, manager_id) VALUES ($1, $2, $3, $4) RETURNING id, username, role, manager_id",
+            [username, hashedPassword, targetRole, managerId]
         );
 
-        res.json({ message: "Employee added successfully!", user: newUser.rows[0] });
+        res.json({ message: "User added successfully!", user: newUser.rows[0] });
 
     } catch (err) {
         console.error(err.message);
@@ -208,8 +231,9 @@ app.get('/api/states', authenticateToken, async (req, res) => {
             SELECT s.*, 
             (
                 SELECT COUNT(*) FROM records r 
+                LEFT JOIN users u ON r.user_id = u.id
                 WHERE r.state_id = s.id
-                ${role !== 'admin' ? 'AND r.user_id = $1' : ''}
+                ${role === 'admin' ? '' : (role === 'manager' ? 'AND (r.user_id = $1 OR u.manager_id = $1)' : 'AND r.user_id = $1')}
             ) as record_count 
             FROM states s 
             ORDER BY code ASC
@@ -241,9 +265,10 @@ app.get('/api/states/:id', authenticateToken, async (req, res) => {
             SELECT f.id, f.name, f.display_name,
             (
                 SELECT COUNT(*) FROM records r 
+                LEFT JOIN users u ON r.user_id = u.id
                 WHERE r.file_type_id = f.id 
                 AND r.state_id = $1
-                ${role !== 'admin' ? 'AND r.user_id = $2' : ''}
+                ${role === 'admin' ? '' : (role === 'manager' ? 'AND (r.user_id = $2 OR u.manager_id = $2)' : 'AND r.user_id = $2')}
             ) as count
             FROM file_types f
         `;
@@ -275,7 +300,8 @@ app.get('/api/states/:id/counts', authenticateToken, async (req, res) => {
             SELECT f.name, COUNT(r.id) as count 
             FROM file_types f
             LEFT JOIN records r ON f.id = r.file_type_id AND r.state_id = $1
-            ${role !== 'admin' ? 'AND r.user_id = $2' : ''}
+            LEFT JOIN users u ON r.user_id = u.id
+            ${role === 'admin' ? '' : (role === 'manager' ? 'AND (r.user_id = $2 OR u.manager_id = $2)' : 'AND r.user_id = $2')}
             GROUP BY f.name
         `;
         const params = [stateId];
@@ -299,54 +325,77 @@ app.get('/api/states/:id/counts', authenticateToken, async (req, res) => {
 app.get('/api/states/:stateId/files/:fileType/records', authenticateToken, async (req, res) => {
     try {
         const { stateId, fileType } = req.params;
-        const { search } = req.query; // Search query
+        const { search, filter } = req.query; // Added filter
         const userId = req.user.id;
         const role = req.user.role;
 
-        console.log(`[GET Records] Request: Code=${stateId}, File=${fileType}, User=${userId}, Role=${role}, Search=${search}`);
+        console.log(`[GET Records] Request: Code=${stateId}, File=${fileType}, User=${userId}, Role=${role}, Search=${search}, Filter=${filter}`);
 
         // 1. Resolve IDs explicitly to match POST logic
         const stateRes = await pool.query('SELECT id FROM states WHERE code = $1', [stateId]);
         const fileRes = await pool.query('SELECT id FROM file_types WHERE name = $1', [fileType]);
 
-        if (stateRes.rows.length === 0) {
-            console.log(`[GET Records] State code '${stateId}' not found.`);
-            return res.status(404).json({ error: "State not found" });
-        }
-        if (fileRes.rows.length === 0) {
-            console.log(`[GET Records] File type '${fileType}' not found.`);
-            return res.status(404).json({ error: "File type not found" });
-        }
+        if (stateRes.rows.length === 0) return res.status(404).json({ error: "State not found" });
+        if (fileRes.rows.length === 0) return res.status(404).json({ error: "File type not found" });
 
         const internalStateId = stateRes.rows[0].id;
         const internalFileId = fileRes.rows[0].id;
 
-        // 2. Query with direct ID linkage
-        let query = `
-            SELECT r.*, f.name as file_type_name, u.username
+        // 2. Query with direct ID linkage & Window Function
+        // Using CTE to apply ROW_NUMBER correctly on the filtered set or global set?
+        // Prompt says: "even if a record is deleted, the list remains numbered 1, 2, 3... based on the creation date."
+        // This implies ROW_NUMBER should be calculated over *all* records for this file/state, 
+        // OR just the ones displayed? "numbered 1, 2, 3 sequentially based on creation date".
+        // Usually, serial number in a register is permanent (ID). But "Window Function" implies dynamic calculation.
+        // "ensures that even if a record is deleted, the list remains numbered 1, 2, 3... SEQUENTIALLY".
+        // This means it recalculates on the fly.
+
+        let queryData = `
+            SELECT r.*, f.name as file_type_name, u.username,
+            ROW_NUMBER() OVER (ORDER BY r.treatment_date ASC, r.created_at ASC) as serial_number
             FROM records r
             JOIN file_types f ON r.file_type_id = f.id
             LEFT JOIN users u ON r.user_id = u.id
             WHERE r.state_id = $1
             AND r.file_type_id = $2
         `;
+
+        // Dynamic Params
         const params = [internalStateId, internalFileId];
+        let paramIdx = 3;
 
-        // 3. Apply Isolation
-        if (role !== 'admin') {
-            query += ` AND r.user_id = $${params.length + 1}`;
+        // 3. Apply Isolation (RBAC)
+        if (role === 'admin') {
+            // No extra filter
+        } else if (role === 'manager') {
+            // My records OR my employees' records
+            queryData += ` AND (r.user_id = $${paramIdx} OR u.manager_id = $${paramIdx})`;
             params.push(userId);
+            paramIdx++;
+        } else {
+            // Employee: Own records
+            queryData += ` AND r.user_id = $${paramIdx}`;
+            params.push(userId);
+            paramIdx++;
         }
 
-        // 4. Apply Search (CCP Account)
+        // 4. Apply Status Filter
+        if (filter === 'completed') {
+            queryData += ` AND r.status = 'completed'`;
+        } else if (filter === 'incomplete') {
+            queryData += ` AND (r.status = 'incomplete' OR r.status = 'pending')`;
+        }
+
+        // 5. Apply Search (CCP Account)
         if (search && search.trim() !== '') {
-            query += ` AND r.postal_account ILIKE $${params.length + 1}`;
+            queryData += ` AND r.postal_account ILIKE $${paramIdx}`;
             params.push(`%${search.trim()}%`);
+            paramIdx++;
         }
 
-        query += ` ORDER BY r.treatment_date DESC`;
+        queryData += ` ORDER BY r.treatment_date DESC`;
 
-        const result = await pool.query(query, params);
+        const result = await pool.query(queryData, params);
         console.log(`[GET Records] Found ${result.rows.length} records.`);
         res.json(result.rows);
 
@@ -426,8 +475,8 @@ app.get('/api/records/download/:stateId/:fileTypeId', authenticateToken, async (
 // 2. Create Record
 app.post('/api/records', authenticateToken, async (req, res) => {
     try {
-        const { stateId, fileType, employeeName, postalAccount, amount, treatmentDate, notes, status } = req.body;
-        console.log(`[POST Record] UserID=${req.user?.id}, State=${stateId}, File=${fileType}, Name=${employeeName}`);
+        const { stateId, fileType, employeeName, postalAccount, amount, treatmentDate, notes, status, reimbursementAmount } = req.body;
+        console.log(`[POST Record] UserID=${req.user?.id}, State=${stateId}, File=${fileType}, Name=${employeeName}, Reimbursement=${reimbursementAmount}`);
 
         const stateRes = await pool.query('SELECT id FROM states WHERE code = $1', [stateId]);
         const fileRes = await pool.query('SELECT id FROM file_types WHERE name = $1', [fileType]);
@@ -438,8 +487,8 @@ app.post('/api/records', authenticateToken, async (req, res) => {
 
         const result = await pool.query(`
             INSERT INTO records 
-            (state_id, file_type_id, employee_name, postal_account, amount, treatment_date, notes, status, user_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            (state_id, file_type_id, employee_name, postal_account, amount, treatment_date, notes, status, user_id, reimbursement_amount)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
         `, [
             stateRes.rows[0].id,
@@ -450,7 +499,8 @@ app.post('/api/records', authenticateToken, async (req, res) => {
             treatmentDate,
             notes,
             status || 'completed',
-            req.user.id
+            req.user.id,
+            reimbursementAmount || 0
         ]);
 
         res.json(result.rows[0]);
@@ -464,14 +514,14 @@ app.post('/api/records', authenticateToken, async (req, res) => {
 app.put('/api/records/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { employeeName, postalAccount, amount, treatmentDate, notes, status } = req.body;
+        const { employeeName, postalAccount, amount, treatmentDate, notes, status, reimbursementAmount } = req.body;
 
         const result = await pool.query(`
             UPDATE records 
-            SET employee_name = $1, postal_account = $2, amount = $3, treatment_date = $4, notes = $5, status = $6, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $7
+            SET employee_name = $1, postal_account = $2, amount = $3, treatment_date = $4, notes = $5, status = $6, result_amount = $7, reimbursement_amount = $8, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $9
             RETURNING *
-        `, [employeeName, postalAccount, amount, treatmentDate, notes, status, id]);
+        `, [employeeName, postalAccount, amount, treatmentDate, notes, status, 0, reimbursementAmount || 0, id]);
 
         if (result.rows.length === 0) return res.status(404).json({ error: 'Record not found' });
         res.json(result.rows[0]);
@@ -519,7 +569,12 @@ app.get('/api/analytics', authenticateToken, async (req, res) => {
         `;
 
         const params = [];
-        if (role !== 'admin') {
+        if (role === 'admin') {
+            // Admin sees all
+        } else if (role === 'manager') {
+            query += ` LEFT JOIN users u ON r.user_id = u.id AND (r.user_id = $1 OR u.manager_id = $1) `;
+            params.push(userId);
+        } else {
             query += ` AND r.user_id = $1 `;
             params.push(userId);
         }

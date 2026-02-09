@@ -60,7 +60,9 @@ export default function RecordModal({ isOpen, onClose, record, stateId, fileType
             // Explicitly ensure status is set
             status: formData.status,
             // Logic: If completed, note is irrelevant/cleared.
-            notes: formData.status === 'completed' ? '' : formData.notes
+            notes: formData.status === 'completed' ? '' : formData.notes,
+            // Calc reimbursement if surgery
+            reimbursementAmount: (fileType === 'surgery' || fileType === 'operations') ? (formData.amount * 0.60) : 0
         };
 
         // Instant Handoff
@@ -158,6 +160,16 @@ export default function RecordModal({ isOpen, onClose, record, stateId, fileType
                                 </button>
                             </div>
                         </div>
+
+                        {/* REIMBURSEMENT DISPLAY (Surgery Only) */}
+                        {(fileType === 'surgery' || fileType === 'operations') && formData.amount && (
+                            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800 flex items-center justify-between animate-in fade-in duration-300">
+                                <span className="text-blue-700 dark:text-blue-300 font-medium">Amount to be returned (60%):</span>
+                                <span className="text-xl font-bold text-blue-800 dark:text-blue-200">
+                                    {new Intl.NumberFormat('fr-DZ', { style: 'currency', currency: 'DZD' }).format(formData.amount * 0.60)}
+                                </span>
+                            </div>
+                        )}
 
                         {/* Conditional Notes */}
                         {formData.status === 'incomplete' && (
