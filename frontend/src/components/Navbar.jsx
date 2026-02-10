@@ -109,8 +109,8 @@ export default function Navbar() {
                             <LogOut className="h-5 w-5" />
                         </button>
 
-                        {/* Admin Settings Link */}
-                        {user && user.role === 'admin' && (
+                        {/* Admin & Manager Settings Link */}
+                        {user && (user.role === 'admin' || user.role === 'manager') && (
                             <Link
                                 to="/settings"
                                 className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors"
