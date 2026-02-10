@@ -195,27 +195,18 @@ app.post('/api/users/add', authenticateToken, async (req, res) => {
 // --- Admin Routes ---
 
 // Route: Get Users (Admin: All, Manager: Team Only)
+// Route: Get Users (Admin: All)
 app.get('/api/admin/users', authenticateToken, async (req, res) => {
-    const { role, id } = req.user;
-    if (role !== 'admin' && role !== 'manager') return res.sendStatus(403);
-
     try {
-        let query = `
-            SELECT u.id, u.username, u.role, u.created_at, u.last_login, u.visible_password,
-            (SELECT COUNT(*) FROM records r WHERE r.user_id = u.id) as records_count
-            FROM users u
-        `;
+        const { role } = req.user;
 
-        const params = [];
+        // Force-show EVERY account if requester is Admin
+        if (role === 'admin') {
+            const allAccounts = await pool.query('SELECT * FROM users ORDER BY username ASC');
+            return res.json(allAccounts.rows);
+        }
 
-        // No filtering needed for Admin - shows all. 
-        // If a Manager (legacy role) requests, we could restrict, but we are deprecating Manager role.
-        // For safety, strictly Admin only? The prompt says "Admin Overview".
-
-        query += ` ORDER BY u.role ASC, u.created_at DESC`;
-
-        const result = await pool.query(query, params);
-        res.json(result.rows);
+        res.status(403).json({ error: "Access denied" });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Database error' });
@@ -555,7 +546,7 @@ app.post('/api/records', authenticateToken, async (req, res) => {
             treatmentDate,
             notes,
             status || 'completed',
-            req.user.id, // Creator ID
+            parseInt(req.user.id, 10), // User ID (Force Integer)
             numericReimbursement,
             nextSerial
         ];
