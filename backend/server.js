@@ -149,7 +149,7 @@ app.post('/api/users/add', authenticateToken, async (req, res) => {
             // Manager can ONLY create 'user'
             if (role === 'manager') return res.status(403).json({ error: "Managers cannot create other Managers." });
             targetRole = 'user';
-            managerId = creatorId; // Assign to this manager
+            managerId = creatorId; // AUTOMATICALLY assign to this manager
         }
 
         console.log(`[Add User] Validated: Role=${targetRole}, ManagerID=${managerId}`);

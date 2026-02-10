@@ -4,7 +4,7 @@ require('dotenv').config();
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: {
-        rejectUnauthorized: false // This is CRITICAL for Render/Neon connections
+        rejectUnauthorized: false // Keep this for now to ensure connectivity. Use 'true' only if CA is available.
     }
 });
 
