@@ -286,7 +286,7 @@ app.get('/api/states', authenticateToken, async (req, res) => {
                 ${role === 'admin' ? '' : 'AND r.user_id = $1'}
             ) as record_count 
             FROM states s 
-            ORDER BY code ASC
+            ORDER BY CAST(SPLIT_PART(s.code, '-', 1) AS INTEGER), s.code ASC
         `;
 
         const params = role !== 'admin' ? [userId] : [];
