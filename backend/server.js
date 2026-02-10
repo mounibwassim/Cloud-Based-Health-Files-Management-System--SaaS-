@@ -499,24 +499,28 @@ app.get('/api/records/download/:stateId/:fileTypeId', authenticateToken, async (
 
 // 2. Create Record (With Transaction & Persistent Serial)
 app.post('/api/records', authenticateToken, async (req, res) => {
+    console.log("[POST /records] Request received from user:", req.user.id);
     const client = await pool.connect();
     try {
         const { stateId, fileType, employeeName, postalAccount, amount, treatmentDate, notes, status, reimbursementAmount } = req.body;
-        console.log(`[POST Record] UserID=${req.user?.id}, State=${stateId}, File=${fileType}, Name=${employeeName}`);
+        console.log(`[POST Record] Payload: State=${stateId}, File=${fileType}, Name=${employeeName}, Amount=${amount}, Status=${status}`);
 
         await client.query('BEGIN'); // Start Transaction
+        console.log("[POST Record] Transaction Started");
 
         // 1. Resolve IDs
         const stateRes = await client.query('SELECT id FROM states WHERE code = $1', [stateId]);
         const fileRes = await client.query('SELECT id FROM file_types WHERE name = $1', [fileType]);
 
         if (stateRes.rows.length === 0 || fileRes.rows.length === 0) {
+            console.error("[POST Record] Invalid State or File Type. StateRes:", stateRes.rows.length, "FileRes:", fileRes.rows.length);
             await client.query('ROLLBACK');
             return res.status(400).json({ error: 'Invalid State or File Type' });
         }
 
         const internalStateId = stateRes.rows[0].id;
         const internalFileTypeId = fileRes.rows[0].id;
+        console.log(`[POST Record] Resolved IDs: State=${internalStateId}, File=${internalFileTypeId}`);
 
         // 2. Calculate Next Serial Number (Scoped to State & FileType)
         const maxSerialRes = await client.query(
@@ -524,14 +528,16 @@ app.post('/api/records', authenticateToken, async (req, res) => {
             [internalStateId, internalFileTypeId]
         );
         const nextSerial = (maxSerialRes.rows[0].max_serial || 0) + 1;
+        console.log(`[POST Record] Calculated Serial: ${nextSerial}`);
 
         // 3. Insert Record
-        const insertRes = await client.query(`
+        const insertQuery = `
             INSERT INTO records 
             (state_id, file_type_id, employee_name, postal_account, amount, treatment_date, notes, status, user_id, reimbursement_amount, serial_number)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *
-        `, [
+        `;
+        const insertParams = [
             internalStateId,
             internalFileTypeId,
             employeeName,
@@ -543,16 +549,18 @@ app.post('/api/records', authenticateToken, async (req, res) => {
             req.user.id,
             reimbursementAmount || 0,
             nextSerial
-        ]);
+        ];
+
+        const insertRes = await client.query(insertQuery, insertParams);
 
         await client.query('COMMIT'); // Commit Transaction
-        console.log(`[POST Record] Success: Serial #${nextSerial}`);
+        console.log(`[POST Record] Transaction Committed. Record ID: ${insertRes.rows[0].id}`);
         res.json(insertRes.rows[0]);
 
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error("[POST Record Error]", err);
-        res.status(500).json({ error: 'Database error' });
+        console.error("[POST Record Error] Transaction Rolled Back. Detail:", err);
+        res.status(500).json({ error: 'Database error: ' + err.message });
     } finally {
         client.release();
     }
