@@ -136,7 +136,7 @@ export default function FileRecords() {
 
             const isSurgery = fileType === 'surgery' || fileType === 'operations';
 
-            const tableColumn = ["#", "الرقم التسلسلي", "Status", "Date", "Employee Name", "CCP"];
+            const tableColumn = ["#", "Serial Number", "Status", "Date", "Employee Name", "CCP"];
 
             if (isSurgery) {
                 tableColumn.push("Reimbursement (60%)");
