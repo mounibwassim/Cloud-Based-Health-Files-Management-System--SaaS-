@@ -144,13 +144,12 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// 🔒 ADMIN & MANAGER: Create a New User (Manager or Employee)
+// 🔒 ADMIN ONLY: Create a New User (Employee or Admin)
 app.post('/api/users/add', authenticateToken, async (req, res) => {
     const { username, password, role } = req.body;
     console.log(`[Add User Attempt] Creator: ${req.user.username} (${req.user.role}) -> Target: ${username} (${role})`);
 
     const creatorRole = req.user.role;
-    const creatorId = req.user.id;
 
     try {
         // 1. Permission Check
@@ -160,7 +159,6 @@ app.post('/api/users/add', authenticateToken, async (req, res) => {
 
         // 2. Validate Target Role
         let targetRole = 'user';
-        // Allow creating other admins? Or just users. logic simplifies to:
         if (role === 'admin') targetRole = 'admin';
         else targetRole = 'user';
 
@@ -194,7 +192,6 @@ app.post('/api/users/add', authenticateToken, async (req, res) => {
 
 // --- Admin Routes ---
 
-// Route: Get Users (Admin: All, Manager: Team Only)
 // Route: Get Users (Admin: All)
 app.get('/api/admin/users', authenticateToken, async (req, res) => {
     try {
@@ -301,7 +298,7 @@ app.get('/api/states/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// Get counts for state dashboard (Redundant but kept for safety if used elsewhere)
+// Get counts for state dashboard
 app.get('/api/states/:id/counts', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
@@ -317,7 +314,7 @@ app.get('/api/states/:id/counts', authenticateToken, async (req, res) => {
             FROM file_types f
             LEFT JOIN records r ON f.id = r.file_type_id AND r.state_id = $1
             LEFT JOIN users u ON r.user_id = u.id
-            ${role === 'admin' ? '' : (role === 'manager' ? 'AND (r.user_id = $2 OR u.manager_id = $2)' : 'AND r.user_id = $2')}
+            ${role === 'admin' ? '' : 'AND r.user_id = $2'}
             GROUP BY f.name
         `;
         const params = [stateId];
@@ -486,7 +483,10 @@ app.get('/api/records/download/:stateId/:fileTypeId', authenticateToken, async (
 
 // 2. Create Record (With Transaction & Persistent Serial)
 app.post('/api/records', authenticateToken, async (req, res) => {
-    console.log("[POST /records] Request received from user:", req.user.id);
+    // SECURITY: FORCE user_id from token, ignore req.body
+    const userIdFromToken = req.user.id;
+    console.log("[POST /records] Request received from user:", userIdFromToken);
+
     const client = await pool.connect();
     try {
         const { stateId, fileType, employeeName, postalAccount, amount, treatmentDate, notes, status, reimbursementAmount } = req.body;
@@ -530,7 +530,7 @@ app.post('/api/records', authenticateToken, async (req, res) => {
         const nextSerial = (maxSerialRes.rows[0].max_serial || 0) + 1;
         console.log(`[POST Record] Calculated Serial: ${nextSerial}`);
 
-        // 3. Insert Record (Strict User Ownership - No Manager)
+        // 3. Insert Record (Strict User Ownership - Enforced Integer)
         const insertQuery = `
             INSERT INTO records 
             (state_id, file_type_id, employee_name, postal_account, amount, treatment_date, notes, status, user_id, reimbursement_amount, serial_number)
@@ -546,7 +546,7 @@ app.post('/api/records', authenticateToken, async (req, res) => {
             treatmentDate,
             notes,
             status || 'completed',
-            parseInt(req.user.id, 10), // User ID (Force Integer)
+            parseInt(userIdFromToken, 10), // STRICTLY use token ID (FORCE INT)
             numericReimbursement,
             nextSerial
         ];
@@ -554,12 +554,13 @@ app.post('/api/records', authenticateToken, async (req, res) => {
         const insertRes = await client.query(insertQuery, insertParams);
 
         await client.query('COMMIT'); // Commit Transaction
-        console.log(`[POST Record] SUCCESS: Record saved for User ID: ${req.user.id}. Serial: ${nextSerial}`);
+        console.log(`[POST Record] SUCCESS: Record saved for User ID: ${userIdFromToken}. Serial: ${nextSerial}`);
         res.status(201).json(insertRes.rows[0]);
 
     } catch (err) {
         await client.query('ROLLBACK');
         console.error("[POST Record Error]", err.message);
+        // Explicitly return database error details to frontend for debugging
         res.status(500).json({ error: "Failed to save record", details: err.message });
     } finally {
         client.release();
@@ -571,6 +572,21 @@ app.put('/api/records/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
         const { employeeName, postalAccount, amount, treatmentDate, notes, status, reimbursementAmount } = req.body;
+        // Logic: Allow update based on ID. 
+        // Security: In a perfect world we verify ownership again, but assuming finding by ID is enough for now or adding verification
+        // For audit: let's add ownership check if not admin
+
+        const { role, id: userId } = req.user;
+
+        let checkQuery = 'SELECT user_id FROM records WHERE id = $1';
+        let checkParams = [id];
+        const checkRes = await pool.query(checkQuery, checkParams);
+
+        if (checkRes.rows.length === 0) return res.status(404).json({ error: 'Record not found' });
+
+        if (role !== 'admin' && checkRes.rows[0].user_id !== userId) {
+            return res.status(403).json({ error: 'Access Denied: You do not own this record' });
+        }
 
         const result = await pool.query(`
             UPDATE records 
@@ -579,7 +595,6 @@ app.put('/api/records/:id', authenticateToken, async (req, res) => {
             RETURNING *
         `, [employeeName, postalAccount, amount, treatmentDate, notes, status, 0, reimbursementAmount || 0, id]);
 
-        if (result.rows.length === 0) return res.status(404).json({ error: 'Record not found' });
         res.json(result.rows[0]);
     } catch (err) {
         console.error("[PUT Record Error]", err.message);
@@ -598,6 +613,7 @@ app.delete('/api/records/:id', authenticateToken, async (req, res) => {
 
         if (role !== 'admin') {
             // Employees can only delete their own records
+
             query += ' AND user_id = $2';
             params.push(userId);
         }
