@@ -235,7 +235,8 @@ export default function FileRecords() {
             let savedRecord;
 
             // Clean payload: Remove temp ID before sending to backend
-            const payload = { ...recordData };
+            // CRITICAL FIX: Ensure stateId and fileType are present for backend validation
+            const payload = { ...recordData, stateId, fileType };
             if (isTempId) delete payload.id;
 
             if (isEdit) {
@@ -514,8 +515,8 @@ export default function FileRecords() {
                                         {/* STRICT VISIBILITY: ADMIN & MANAGER COLUMN DATA */}
                                         {(user?.role === 'admin' || user?.role === 'manager') && (
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 dark:text-indigo-400 font-medium">
-                                                {/* Requires Backend Join ideally, fallback to ID if needed */}
-                                                {record.username || `User ${record.user_id}`}
+                                                {/* Display Username or 'You' if it matches current user */}
+                                                {record.username === user.username ? 'You' : (record.username || `User ${record.user_id}`)}
                                             </td>
                                         )}
 
