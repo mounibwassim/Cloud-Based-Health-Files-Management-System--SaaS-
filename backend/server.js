@@ -608,12 +608,16 @@ app.delete('/api/records/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         const { id: userId, role } = req.user;
 
+        // Validate ID is an integer
+        if (!id || id === 'undefined' || isNaN(parseInt(id))) {
+            return res.status(400).json({ error: "Invalid Record ID" });
+        }
+
         let query = 'DELETE FROM records WHERE id = $1';
         let params = [id];
 
         if (role !== 'admin') {
             // Employees can only delete their own records
-
             query += ' AND user_id = $2';
             params.push(userId);
         }

@@ -279,11 +279,21 @@ export default function FileRecords() {
     };
 
     const confirmDelete = async () => {
-        if (!recordToDelete) return;
+        // recordToDelete is the ID itself (string or number)
+        const idToDelete = recordToDelete;
+        if (!idToDelete) return;
+
+        // If it's a temporary ID (unsaved), just remove from UI, don't hit backend
+        if (String(idToDelete).startsWith('temp-') || String(idToDelete) === 'undefined') {
+            setRecords(prev => prev.filter(r => r.id !== idToDelete));
+            setIsDeleteModalOpen(false);
+            setRecordToDelete(null);
+            return;
+        }
 
         try {
-            await api.delete(`/records/${recordToDelete.id}`);
-            setRecords(prev => prev.filter(r => r.id !== recordToDelete.id));
+            await api.delete(`/records/${idToDelete}`);
+            setRecords(prev => prev.filter(r => r.id !== idToDelete));
             setIsDeleteModalOpen(false);
             setRecordToDelete(null);
 
