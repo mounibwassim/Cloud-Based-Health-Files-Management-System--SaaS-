@@ -144,7 +144,7 @@ export default function Settings() {
                     Create New User
                 </h3>
 
-                <form onSubmit={handleAddEmployee} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 items-end">
+                <form onSubmit={handleAddEmployee} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 items-end" autoComplete="off">
                     <div className="lg:col-span-1">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Username</label>
                         <input
@@ -153,6 +153,7 @@ export default function Settings() {
                             onChange={(e) => setNewEmpName(e.target.value)}
                             className="w-full p-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 transition-all"
                             placeholder="e.g. Ahmed"
+                            autoComplete="off"
                             required
                         />
                     </div>
@@ -165,6 +166,7 @@ export default function Settings() {
                                 onChange={(e) => setNewEmpPass(e.target.value)}
                                 className="w-full p-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 transition-all pr-10"
                                 placeholder="e.g. pass123"
+                                autoComplete="new-password"
                                 required
                             />
                             <button
