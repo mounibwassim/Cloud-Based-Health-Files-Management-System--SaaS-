@@ -648,4 +648,5 @@ app.get('/api/analytics', authenticateToken, async (req, res) => {
 
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
+    console.log(`[Version Check] Server Code v1.2 - AuthenticateToken Fixed`);
 });
