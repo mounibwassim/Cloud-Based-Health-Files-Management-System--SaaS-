@@ -467,10 +467,19 @@ app.get('/api/records/download/:stateId/:fileTypeId', authenticateToken, async (
             FROM records r 
             WHERE r.state_id = $1 AND r.file_type_id = $2
         `;
+        // Dynamic Params
         const params = [state.id, fileType.id];
+        let paramIdx = 3;
 
-        if (role !== 'admin') {
-            query += ` AND r.user_id = $3`;
+        if (role === 'admin') {
+            // Admin sees all
+        } else if (role === 'manager') {
+            // Manager: Team records (Whole Wilaya Scope = All EMPLOYEES under that manager)
+            query += ` LEFT JOIN users u ON r.user_id = u.id AND (r.user_id = $${paramIdx} OR u.manager_id = $${paramIdx})`;
+            params.push(userId);
+        } else {
+            // Employee: Own records
+            query += ` AND r.user_id = $${paramIdx}`;
             params.push(userId);
         }
 
@@ -602,7 +611,7 @@ app.delete('/api/records/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// 5. Delete Account
+// 5. Delete Account (Self)
 app.delete('/api/users/me', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -612,6 +621,35 @@ app.delete('/api/users/me', authenticateToken, async (req, res) => {
     } catch (err) {
         console.error('[Delete Account] Error:', err);
         res.status(500).json({ error: 'Server error during account deletion' });
+    }
+});
+
+// 5b. Delete User (Admin/Manager)
+app.delete('/api/users/:id', authenticateToken, async (req, res) => {
+    const targetUserId = req.params.id;
+    const { role, id: requesterId } = req.user;
+
+    try {
+        // Admin can delete anyone
+        if (role === 'admin') {
+            await pool.query('DELETE FROM users WHERE id = $1', [targetUserId]);
+            return res.json({ success: true });
+        }
+
+        // Manager can only delete their own employees
+        if (role === 'manager') {
+            const result = await pool.query(
+                'DELETE FROM users WHERE id = $1 AND role = $2 AND manager_id = $3',
+                [targetUserId, 'user', requesterId]
+            );
+            if (result.rowCount === 0) return res.status(403).send("Forbidden: You can only delete your employees.");
+            return res.json({ success: true });
+        }
+
+        res.sendStatus(403);
+    } catch (err) {
+        console.error("[Delete User Error]", err);
+        res.status(500).json({ error: "Server Error" });
     }
 });
 
@@ -628,8 +666,12 @@ app.get('/api/analytics', authenticateToken, async (req, res) => {
         `;
 
         const params = [];
-        if (role === 'admin' || role === 'manager') {
-            // Admin & Manager see ALL records (Global Oversight for Stats)
+        if (role === 'admin') {
+            // Admin sees all
+        } else if (role === 'manager') {
+            // Manager: Team records (Team-Specific)
+            query += ` LEFT JOIN users u ON r.user_id = u.id AND (r.user_id = $1 OR u.manager_id = $1) `;
+            params.push(userId);
         } else {
             // Employee: Own records
             query += ` LEFT JOIN users u ON r.user_id = u.id WHERE r.user_id = $1 `;

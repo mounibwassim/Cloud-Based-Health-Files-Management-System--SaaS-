@@ -80,7 +80,8 @@ export default function Settings() {
         if (!window.confirm(`Are you sure you want to KICK OUT ${username}? They will not be able to login again.`)) return;
 
         try {
-            await api.delete(`/admin/users/${id}`);
+            // Use generic delete endpoint handled by server logic (Admin or Manager)
+            await api.delete(`/users/${id}`);
             setUsers(users.filter(u => u.id !== id));
             setMessage(`🚫 Kicked out ${username}`);
             setTimeout(() => setMessage(''), 3000);
@@ -281,8 +282,8 @@ export default function Settings() {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                         <div className="flex items-center justify-end space-x-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            {/* Admin Only Actions */}
-                                            {user.role === 'admin' && (
+                                            {/* Admin OR (Manager deleting 'user') */}
+                                            {(user.role === 'admin' || (user.role === 'manager' && u.role === 'user')) && (
                                                 <>
                                                     <button
                                                         onClick={() => openResetModal(u)}
