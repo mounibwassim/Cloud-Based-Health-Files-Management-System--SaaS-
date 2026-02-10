@@ -120,6 +120,8 @@ app.post('/api/login', async (req, res) => {
 // 🔒 ADMIN & MANAGER: Create a New User (Manager or Employee)
 app.post('/api/users/add', authenticateToken, async (req, res) => {
     const { username, password, role } = req.body;
+    console.log(`[Add User Attempt] Creator: ${req.user.username} (${req.user.role}) -> Target: ${username} (${role})`);
+
     const creatorRole = req.user.role;
     const creatorId = req.user.id;
 
@@ -140,7 +142,8 @@ app.post('/api/users/add', authenticateToken, async (req, res) => {
 
             // If Admin creates a 'user', checks if managerId is provided to assign them.
             if (targetRole === 'user' && req.body.managerId) {
-                managerId = parseInt(req.body.managerId);
+                const parsedId = parseInt(req.body.managerId);
+                if (!isNaN(parsedId)) managerId = parsedId;
             }
         } else if (creatorRole === 'manager') {
             // Manager can ONLY create 'user'
@@ -148,6 +151,8 @@ app.post('/api/users/add', authenticateToken, async (req, res) => {
             targetRole = 'user';
             managerId = creatorId; // Assign to this manager
         }
+
+        console.log(`[Add User] Validated: Role=${targetRole}, ManagerID=${managerId}`);
 
         // 3. Check if user exists
         const check = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
@@ -163,11 +168,13 @@ app.post('/api/users/add', authenticateToken, async (req, res) => {
             [username, hashedPassword, targetRole, managerId]
         );
 
+        console.log(`[Add User] Success: ID ${newUser.rows[0].id}`);
+
         res.json({ message: "User added successfully!", user: newUser.rows[0] });
 
     } catch (err) {
-        console.error(err.message);
-        res.status(500).json({ error: "Server Error: Could not add user." });
+        console.error("[Add User Error]", err.message);
+        res.status(500).json({ error: "Server Error: Could not add user. " + err.message });
     }
 });
 
@@ -186,18 +193,31 @@ const authenticateToken = (req, res, next) => {
 
 // --- Admin Routes ---
 
+// Route: Get Users (Admin: All, Manager: Team Only)
 app.get('/api/admin/users', authenticateToken, async (req, res) => {
-    if (req.user.role !== 'admin') return res.sendStatus(403);
+    const { role, id } = req.user;
+    if (role !== 'admin' && role !== 'manager') return res.sendStatus(403);
+
     try {
-        // Fix: Use Correlated Subquery for accurate count and LEFT JOIN for Manager Name
-        const result = await pool.query(`
+        let query = `
             SELECT u.id, u.username, u.role, u.created_at, u.last_login, u.manager_id,
             m.username as manager_username,
             (SELECT COUNT(*) FROM records r WHERE r.user_id = u.id) as records_count
             FROM users u
             LEFT JOIN users m ON u.manager_id = m.id
-            ORDER BY u.role ASC, u.created_at DESC
-        `);
+        `;
+
+        const params = [];
+
+        if (role === 'manager') {
+            // Manager sees themselves and their direct reports
+            query += ` WHERE u.manager_id = $1 OR u.id = $1`;
+            params.push(id);
+        }
+
+        query += ` ORDER BY u.role ASC, u.created_at DESC`;
+
+        const result = await pool.query(query, params);
         res.json(result.rows);
     } catch (err) {
         console.error(err);
@@ -364,18 +384,9 @@ app.get('/api/states/:stateId/files/:fileType/records', authenticateToken, async
         const internalStateId = stateRes.rows[0].id;
         const internalFileId = fileRes.rows[0].id;
 
-        // 2. Query with direct ID linkage & Window Function
-        // Using CTE to apply ROW_NUMBER correctly on the filtered set or global set?
-        // Prompt says: "even if a record is deleted, the list remains numbered 1, 2, 3... based on the creation date."
-        // This implies ROW_NUMBER should be calculated over *all* records for this file/state, 
-        // OR just the ones displayed? "numbered 1, 2, 3 sequentially based on creation date".
-        // Usually, serial number in a register is permanent (ID). But "Window Function" implies dynamic calculation.
-        // "ensures that even if a record is deleted, the list remains numbered 1, 2, 3... SEQUENTIALLY".
-        // This means it recalculates on the fly.
-
+        // 2. Query with direct ID linkage & Stored Serial Number
         let queryData = `
-            SELECT r.*, f.name as file_type_name, u.username,
-            ROW_NUMBER() OVER (ORDER BY r.treatment_date ASC, r.created_at ASC) as serial_number
+            SELECT r.*, f.name as file_type_name, u.username
             FROM records r
             JOIN file_types f ON r.file_type_id = f.id
             LEFT JOIN users u ON r.user_id = u.id
@@ -495,27 +506,43 @@ app.get('/api/records/download/:stateId/:fileTypeId', authenticateToken, async (
     }
 });
 
-// 2. Create Record
+// 2. Create Record (With Transaction & Persistent Serial)
 app.post('/api/records', authenticateToken, async (req, res) => {
+    const client = await pool.connect();
     try {
         const { stateId, fileType, employeeName, postalAccount, amount, treatmentDate, notes, status, reimbursementAmount } = req.body;
-        console.log(`[POST Record] UserID=${req.user?.id}, State=${stateId}, File=${fileType}, Name=${employeeName}, Reimbursement=${reimbursementAmount}`);
+        console.log(`[POST Record] UserID=${req.user?.id}, State=${stateId}, File=${fileType}, Name=${employeeName}`);
 
-        const stateRes = await pool.query('SELECT id FROM states WHERE code = $1', [stateId]);
-        const fileRes = await pool.query('SELECT id FROM file_types WHERE name = $1', [fileType]);
+        await client.query('BEGIN'); // Start Transaction
+
+        // 1. Resolve IDs
+        const stateRes = await client.query('SELECT id FROM states WHERE code = $1', [stateId]);
+        const fileRes = await client.query('SELECT id FROM file_types WHERE name = $1', [fileType]);
 
         if (stateRes.rows.length === 0 || fileRes.rows.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(400).json({ error: 'Invalid State or File Type' });
         }
 
-        const result = await pool.query(`
+        const internalStateId = stateRes.rows[0].id;
+        const internalFileTypeId = fileRes.rows[0].id;
+
+        // 2. Calculate Next Serial Number (Scoped to State & FileType)
+        const maxSerialRes = await client.query(
+            'SELECT MAX(serial_number) as max_serial FROM records WHERE state_id = $1 AND file_type_id = $2',
+            [internalStateId, internalFileTypeId]
+        );
+        const nextSerial = (maxSerialRes.rows[0].max_serial || 0) + 1;
+
+        // 3. Insert Record
+        const insertRes = await client.query(`
             INSERT INTO records 
-            (state_id, file_type_id, employee_name, postal_account, amount, treatment_date, notes, status, user_id, reimbursement_amount)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            (state_id, file_type_id, employee_name, postal_account, amount, treatment_date, notes, status, user_id, reimbursement_amount, serial_number)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *
         `, [
-            stateRes.rows[0].id,
-            fileRes.rows[0].id,
+            internalStateId,
+            internalFileTypeId,
             employeeName,
             postalAccount,
             amount,
@@ -523,13 +550,20 @@ app.post('/api/records', authenticateToken, async (req, res) => {
             notes,
             status || 'completed',
             req.user.id,
-            reimbursementAmount || 0
+            reimbursementAmount || 0,
+            nextSerial
         ]);
 
-        res.json(result.rows[0]);
+        await client.query('COMMIT'); // Commit Transaction
+        console.log(`[POST Record] Success: Serial #${nextSerial}`);
+        res.json(insertRes.rows[0]);
+
     } catch (err) {
-        console.error(err);
+        await client.query('ROLLBACK');
+        console.error("[POST Record Error]", err);
         res.status(500).json({ error: 'Database error' });
+    } finally {
+        client.release();
     }
 });
 

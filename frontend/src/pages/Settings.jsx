@@ -118,7 +118,7 @@ export default function Settings() {
     };
 
     // Security Guard
-    if (!user || user.role !== 'admin') {
+    if (!user || (user.role !== 'admin' && user.role !== 'manager')) {
         return <Navigate to="/" replace />;
     }
 
@@ -126,7 +126,7 @@ export default function Settings() {
         <div className="max-w-7xl mx-auto px-4 py-8 animate-in fade-in duration-300">
             <h1 className="text-3xl font-bold mb-8 text-gray-800 dark:text-white flex items-center">
                 <Shield className="mr-3 h-8 w-8 text-indigo-600" />
-                Admin Settings
+                {user.role === 'admin' ? 'Admin Settings' : 'Team Management'}
             </h1>
 
             {/* --- ADD USER SECTION --- */}
@@ -167,11 +167,15 @@ export default function Settings() {
                             <select
                                 value={newEmpRole}
                                 onChange={(e) => setNewEmpRole(e.target.value)}
-                                className="w-full p-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 appearance-none transition-all"
+                                disabled={user.role === 'manager'}
+                                className={`w-full p-2.5 rounded-lg border transition-all appearance-none ${user.role === 'manager'
+                                    ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 border-gray-200 dark:border-gray-800 cursor-not-allowed'
+                                    : 'bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-indigo-500'
+                                    }`}
                             >
                                 <option value="user">Employee (User)</option>
-                                <option value="manager">Manager</option>
-                                <option value="admin">Admin</option>
+                                {user.role === 'admin' && <option value="manager">Manager</option>}
+                                {user.role === 'admin' && <option value="admin">Admin</option>}
                             </select>
                             <ChevronDown className="absolute right-3 top-3 h-4 w-4 text-gray-400 pointer-events-none" />
                         </div>
@@ -188,8 +192,8 @@ export default function Settings() {
                                 onChange={(e) => setSelectedManagerId(e.target.value)}
                                 disabled={newEmpRole !== 'user'}
                                 className={`w-full p-2.5 rounded-lg border transition-all appearance-none ${newEmpRole === 'user'
-                                        ? 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500'
-                                        : 'border-gray-200 dark:border-gray-800 bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed'
+                                    ? 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500'
+                                    : 'border-gray-200 dark:border-gray-800 bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed'
                                     }`}
                             >
                                 <option value="">-- Direct to Admin --</option>
@@ -254,8 +258,8 @@ export default function Settings() {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full uppercase tracking-wide ${u.role === 'admin' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-200' :
-                                                u.role === 'manager' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200' :
-                                                    'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200'
+                                            u.role === 'manager' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200' :
+                                                'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200'
                                             }`}>
                                             {u.role}
                                         </span>
@@ -278,23 +282,29 @@ export default function Settings() {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                         <div className="flex items-center justify-end space-x-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button
-                                                onClick={() => openResetModal(u)}
-                                                className="text-amber-600 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-300 flex items-center"
-                                                title="Reset Password"
-                                            >
-                                                <Key className="h-4 w-4" />
-                                            </button>
+                                            {/* Admin Only Actions */}
+                                            {user.role === 'admin' && (
+                                                <>
+                                                    <button
+                                                        onClick={() => openResetModal(u)}
+                                                        className="text-amber-600 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-300 flex items-center"
+                                                        title="Reset Password"
+                                                    >
+                                                        <Key className="h-4 w-4" />
+                                                    </button>
 
-                                            {u.id !== user.id && (
-                                                <button
-                                                    onClick={() => handleDeleteUser(u.id, u.username)}
-                                                    className="text-red-600 hover:text-red-900 dark:hover:text-red-400 flex items-center"
-                                                    title="Kick Out User"
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </button>
+                                                    {u.id !== user.id && (
+                                                        <button
+                                                            onClick={() => handleDeleteUser(u.id, u.username)}
+                                                            className="text-red-600 hover:text-red-900 dark:hover:text-red-400 flex items-center"
+                                                            title="Kick Out User"
+                                                        >
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </button>
+                                                    )}
+                                                </>
                                             )}
+                                            {/* Manager Actions (If any? Currently None) */}
                                         </div>
                                     </td>
                                 </tr>
