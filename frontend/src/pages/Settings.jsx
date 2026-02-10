@@ -235,7 +235,7 @@ export default function Settings() {
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">User</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Password</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Reports To</th>
+                                {/* <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Reports To</th> */}
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Stats</th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                             </tr>
@@ -281,22 +281,12 @@ export default function Settings() {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full uppercase tracking-wide ${u.role === 'admin' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-200' :
-                                            u.role === 'manager' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200' :
-                                                'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200'
+                                            'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200'
                                             }`}>
                                             {u.role}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                        {u.manager_username ? (
-                                            <div className="flex items-center text-indigo-600 dark:text-indigo-400">
-                                                <Shield className="w-3 h-3 mr-1" />
-                                                {u.manager_username}
-                                            </div>
-                                        ) : (
-                                            <span className="text-gray-300 dark:text-gray-600">--</span>
-                                        )}
-                                    </td>
+                                    {/* Removed Reports To Column */}
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                         <div className="flex items-center">
                                             <Activity className="h-4 w-4 mr-2 text-gray-400" />

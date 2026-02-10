@@ -154,32 +154,17 @@ app.post('/api/users/add', authenticateToken, async (req, res) => {
 
     try {
         // 1. Permission Check
-        if (creatorRole !== 'admin' && creatorRole !== 'manager') {
-            return res.status(403).json({ error: "Access Denied" });
+        if (creatorRole !== 'admin') {
+            return res.status(403).json({ error: "Access Denied: Only Admins can add users." });
         }
 
         // 2. Validate Target Role
-        let targetRole = 'user'; // Default to employee
-        let managerId = null;
+        let targetRole = 'user';
+        // Allow creating other admins? Or just users. logic simplifies to:
+        if (role === 'admin') targetRole = 'admin';
+        else targetRole = 'user';
 
-        if (creatorRole === 'admin') {
-            // Admin can create 'manager' or 'user'
-            if (role === 'manager') targetRole = 'manager';
-            else targetRole = 'user';
-
-            // If Admin creates a 'user', checks if managerId is provided to assign them.
-            if (targetRole === 'user' && req.body.managerId) {
-                const parsedId = parseInt(req.body.managerId);
-                if (!isNaN(parsedId)) managerId = parsedId;
-            }
-        } else if (creatorRole === 'manager') {
-            // Manager can ONLY create 'user'
-            if (role === 'manager') return res.status(403).json({ error: "Managers cannot create other Managers." });
-            targetRole = 'user';
-            managerId = creatorId; // AUTOMATICALLY assign to this manager
-        }
-
-        console.log(`[Add User] Validated: Role=${targetRole}, ManagerID=${managerId}`);
+        console.log(`[Add User] Validated: Role=${targetRole}`);
 
         // 3. Check if user exists
         const check = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
@@ -189,10 +174,10 @@ app.post('/api/users/add', authenticateToken, async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // 5. Insert
+        // 5. Insert (No Manager ID)
         const newUser = await pool.query(
-            "INSERT INTO users (username, password_hash, role, manager_id, visible_password) VALUES ($1, $2, $3, $4, $5) RETURNING id, username, role, manager_id",
-            [username, hashedPassword, targetRole, managerId, password]
+            "INSERT INTO users (username, password_hash, role, visible_password) VALUES ($1, $2, $3, $4) RETURNING id, username, role",
+            [username, hashedPassword, targetRole, password]
         );
 
         console.log(`[Add User] Success: ID ${newUser.rows[0].id}`);
@@ -216,20 +201,16 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
 
     try {
         let query = `
-            SELECT u.id, u.username, u.role, u.created_at, u.last_login, u.manager_id, u.visible_password,
-            m.username as manager_username,
+            SELECT u.id, u.username, u.role, u.created_at, u.last_login, u.visible_password,
             (SELECT COUNT(*) FROM records r WHERE r.user_id = u.id) as records_count
             FROM users u
-            LEFT JOIN users m ON u.manager_id = m.id
         `;
 
         const params = [];
 
-        if (role === 'manager') {
-            // Manager sees themselves and their direct reports ONLY (Team Scope)
-            query += ` WHERE u.manager_id = $1 OR u.id = $1`;
-            params.push(id);
-        }
+        // No filtering needed for Admin - shows all. 
+        // If a Manager (legacy role) requests, we could restrict, but we are deprecating Manager role.
+        // For safety, strictly Admin only? The prompt says "Admin Overview".
 
         query += ` ORDER BY u.role ASC, u.created_at DESC`;
 
@@ -277,7 +258,7 @@ app.get('/api/states', authenticateToken, async (req, res) => {
                 SELECT COUNT(*) FROM records r 
                 LEFT JOIN users u ON r.user_id = u.id
                 WHERE r.state_id = s.id
-                ${role === 'admin' ? '' : (role === 'manager' ? 'AND (r.user_id = $1 OR u.manager_id = $1)' : 'AND r.user_id = $1')}
+                ${role === 'admin' ? '' : 'AND r.user_id = $1'}
             ) as record_count 
             FROM states s 
             ORDER BY code ASC
@@ -312,7 +293,7 @@ app.get('/api/states/:id', authenticateToken, async (req, res) => {
                 LEFT JOIN users u ON r.user_id = u.id
                 WHERE r.file_type_id = f.id 
                 AND r.state_id = $1
-                ${role === 'admin' ? '' : (role === 'manager' ? 'AND (r.user_id = $2 OR u.manager_id = $2)' : 'AND r.user_id = $2')}
+                ${role === 'admin' ? '' : 'AND r.user_id = $2'}
             ) as count
             FROM file_types f
         `;
@@ -404,11 +385,11 @@ app.get('/api/states/:stateId/files/:fileType/records', authenticateToken, async
         const params = [internalStateId, internalFileId];
         let paramIdx = 3;
 
-        // 3. Apply Isolation (RBAC)
-        if (role === 'admin' || role === 'manager') {
-            // Admin & Manager see ALL records (Global Oversight for Stats)
+        // 3. Apply Isolation (Simple 2-Tier: Admin vs User)
+        if (role === 'admin') {
+            // Admin sees ALL records (Global Oversight)
         } else {
-            // Employee: Own records
+            // Employee: Own records ONLY
             queryData += ` AND r.user_id = $${paramIdx}`;
             params.push(userId);
             paramIdx++;
@@ -472,10 +453,6 @@ app.get('/api/records/download/:stateId/:fileTypeId', authenticateToken, async (
 
         if (role === 'admin') {
             // Admin sees all
-        } else if (role === 'manager') {
-            // Manager: Team records (Whole Wilaya Scope = All EMPLOYEES under that manager)
-            query += ` LEFT JOIN users u ON r.user_id = u.id AND (r.user_id = $${paramIdx} OR u.manager_id = $${paramIdx})`;
-            params.push(userId);
         } else {
             // Employee: Own records
             query += ` AND r.user_id = $${paramIdx}`;
@@ -562,15 +539,11 @@ app.post('/api/records', authenticateToken, async (req, res) => {
         const nextSerial = (maxSerialRes.rows[0].max_serial || 0) + 1;
         console.log(`[POST Record] Calculated Serial: ${nextSerial}`);
 
-        // 2.5 Fetch User's Manager (Hierarchy Check)
-        const userRes = await client.query('SELECT manager_id FROM users WHERE id = $1', [req.user.id]);
-        const managerId = userRes.rows[0]?.manager_id || null; // If null, user might be top-level or manager themselves
-
-        // 3. Insert Record (Explicit Logic: Created By User, Visible to Manager)
+        // 3. Insert Record (Strict User Ownership - No Manager)
         const insertQuery = `
             INSERT INTO records 
-            (state_id, file_type_id, employee_name, postal_account, amount, treatment_date, notes, status, user_id, manager_id, reimbursement_amount, serial_number)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            (state_id, file_type_id, employee_name, postal_account, amount, treatment_date, notes, status, user_id, reimbursement_amount, serial_number)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *
         `;
         const insertParams = [
@@ -582,8 +555,7 @@ app.post('/api/records', authenticateToken, async (req, res) => {
             treatmentDate,
             notes,
             status || 'completed',
-            req.user.id,
-            managerId, // Include Manager ID for instant visibility
+            req.user.id, // Creator ID
             numericReimbursement,
             nextSerial
         ];
@@ -591,13 +563,13 @@ app.post('/api/records', authenticateToken, async (req, res) => {
         const insertRes = await client.query(insertQuery, insertParams);
 
         await client.query('COMMIT'); // Commit Transaction
-        console.log(`[POST Record] Transaction Committed. Record ID: ${insertRes.rows[0].id}`);
-        res.json(insertRes.rows[0]);
+        console.log(`[POST Record] SUCCESS: Record saved for User ID: ${req.user.id}. Serial: ${nextSerial}`);
+        res.status(201).json(insertRes.rows[0]);
 
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error("[POST Record Error] Transaction Rolled Back. Detail:", err);
-        res.status(500).json({ error: 'Database error: ' + err.message });
+        console.error("[POST Record Error]", err.message);
+        res.status(500).json({ error: "Failed to save record", details: err.message });
     } finally {
         client.release();
     }
