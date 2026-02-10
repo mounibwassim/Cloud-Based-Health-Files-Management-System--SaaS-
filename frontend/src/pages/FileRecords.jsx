@@ -256,8 +256,9 @@ export default function FileRecords() {
             // fetchRecords(); 
         } catch (err) {
             console.error("Save failed", err);
-            alert("Failed to save record remotely. The list will revert.");
             fetchRecords(); // Revert on error
+            const errorMsg = err.response?.data?.details || err.response?.data?.error || err.message;
+            alert(`Failed to save record remotely: ${errorMsg}`);
         }
     };
 
