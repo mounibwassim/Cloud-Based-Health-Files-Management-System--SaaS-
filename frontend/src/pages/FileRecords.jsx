@@ -217,7 +217,10 @@ export default function FileRecords() {
             employee_name: recordData.employeeName,
             postal_account: recordData.postalAccount,
             status: recordData.status,
-            notes: recordData.status === 'completed' ? '' : recordData.notes
+            notes: recordData.status === 'completed' ? '' : recordData.notes,
+            // CRITICAL: Add user info for immediate "Created By" display
+            user_id: user.id || 'me',
+            username: user.username
         };
 
         setRecords(prev => {
@@ -247,13 +250,15 @@ export default function FileRecords() {
                 savedRecord = res.data;
             }
 
-            // Update state with REAL record from server
+            // Update state with REAL record from server AND inject Username (since API only returns record table data)
+            const finalRecord = { ...savedRecord, username: user.username };
+
             setRecords(prev => {
                 if (isEdit) {
-                    return prev.map(r => r.id === savedRecord.id ? savedRecord : r);
+                    return prev.map(r => r.id === savedRecord.id ? finalRecord : r);
                 }
                 // Replace the temporary optimistic record with the real one
-                return prev.map(r => r.id === optimisticRecord.id ? savedRecord : r);
+                return prev.map(r => r.id === optimisticRecord.id ? finalRecord : r);
             });
 
             // Clear dashboard cache
