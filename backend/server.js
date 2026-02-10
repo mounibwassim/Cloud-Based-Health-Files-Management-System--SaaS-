@@ -204,14 +204,21 @@ app.post('/api/users/add', authenticateToken, async (req, res) => {
 
 // --- Admin Routes ---
 
-// Route: Get Users (Admin: All)
+// Route: Get Users (Admin: All) - With Record Counts
 app.get('/api/admin/users', authenticateToken, async (req, res) => {
     try {
         const { role } = req.user;
 
         // Force-show EVERY account if requester is Admin
         if (role === 'admin') {
-            const allAccounts = await pool.query('SELECT * FROM users ORDER BY role ASC, username ASC');
+            const query = `
+                SELECT u.id, u.username, u.role, u.last_login, u.visible_password, COUNT(r.id) as records_count 
+                FROM users u 
+                LEFT JOIN records r ON u.id = r.user_id 
+                GROUP BY u.id 
+                ORDER BY u.role ASC, u.username ASC
+            `;
+            const allAccounts = await pool.query(query);
             return res.json(allAccounts.rows);
         }
 
