@@ -401,13 +401,8 @@ app.get('/api/states/:stateId/files/:fileType/records', authenticateToken, async
         let paramIdx = 3;
 
         // 3. Apply Isolation (RBAC)
-        if (role === 'admin') {
-            // No extra filter
-        } else if (role === 'manager') {
-            // My records OR my employees' records
-            queryData += ` AND (r.user_id = $${paramIdx} OR u.manager_id = $${paramIdx})`;
-            params.push(userId);
-            paramIdx++;
+        if (role === 'admin' || role === 'manager') {
+            // Admin & Manager see ALL records (Global Oversight)
         } else {
             // Employee: Own records
             queryData += ` AND r.user_id = $${paramIdx}`;
