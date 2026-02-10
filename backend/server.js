@@ -63,12 +63,22 @@ const authenticateToken = (req, res, next) => {
         return res.sendStatus(401);
     }
 
-    jwt.verify(token, JWT_SECRET, (err, user) => {
+    jwt.verify(token, JWT_SECRET, async (err, user) => {
         if (err) {
             console.log(`[AUTH] Token invalid:`, err.message);
             return res.sendStatus(403);
         }
         console.log(`[AUTH] Token valid for user: ${user.username} (${user.id})`);
+
+        // Update Last Login/Activity timestamp
+        try {
+            // We use last_login as "last_activity" here since it already exists
+            await pool.query('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
+        } catch (updateErr) {
+            console.error("Last Activity Update Failed:", updateErr.message);
+            // Non-critical, continue
+        }
+
         req.user = user;
         next();
     });
@@ -223,8 +233,14 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: "Access denied" });
 
     try {
-        // Simple fetch to verify accounts exist
-        const result = await pool.query('SELECT id, username, role, last_login, visible_password FROM users ORDER BY username ASC');
+        // Fetch users with record counts
+        const query = `
+            SELECT u.id, u.username, u.role, u.last_login, u.visible_password,
+            (SELECT COUNT(*) FROM records r WHERE r.user_id = u.id) as records_count
+            FROM users u
+            ORDER BY u.username ASC
+        `;
+        const result = await pool.query(query);
         res.json(result.rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
