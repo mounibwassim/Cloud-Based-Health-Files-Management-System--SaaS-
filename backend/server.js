@@ -12,10 +12,19 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123';
 // Middleware
 // Allow ANY website to talk to your backend (Fixes the Vercel issue)
 app.use(cors({
-    origin: true, // Reflects the request origin, efficiently allowing "all"
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        callback(null, true);
+    },
     credentials: true
 }));
 app.use(express.json());
+
+// Root Health Check (Easy to verify in browser)
+app.get('/', (req, res) => {
+    res.send('Health Files Backend is RUNNING. v' + new Date().toISOString());
+});
 
 // Database Connection (Import from db.js)
 const pool = require('./db');
