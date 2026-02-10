@@ -646,15 +646,18 @@ app.get('/api/analytics', authenticateToken, async (req, res) => {
         `;
 
         const params = [];
+
         if (role === 'admin') {
-            // Admin sees all
+            // Admin: Count ALL records for each state
+            // No extra connection logic needed, just s.id = r.state_id
         } else if (role === 'manager') {
-            // Manager: Team records (Team-Specific)
-            query += ` LEFT JOIN users u ON r.user_id = u.id AND (r.user_id = $1 OR u.manager_id = $1) `;
+            // Manager: Count records from SELF or DIRECT REPORTS
+            // We append to the JOIN condition, not WHERE, to keep States visible (Count=0)
+            query += ` AND r.user_id IN (SELECT id FROM users WHERE manager_id = $1 OR id = $1) `;
             params.push(userId);
         } else {
-            // Employee: Own records
-            query += ` LEFT JOIN users u ON r.user_id = u.id WHERE r.user_id = $1 `;
+            // Employee: Count records from SELF only
+            query += ` AND r.user_id = $1 `;
             params.push(userId);
         }
 

@@ -257,8 +257,27 @@ export default function Settings() {
                                             </div>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-mono">
-                                        {u.visible_password || '••••••'}
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-500 dark:text-gray-400">
+                                        {user.role === 'admin' ? (
+                                            <div className="flex items-center space-x-2">
+                                                <span className="truncate max-w-[100px]">
+                                                    {u.showPass ? (u.visible_password || 'N/A') : '••••••'}
+                                                </span>
+                                                <button
+                                                    onClick={() => {
+                                                        const newUsers = [...users];
+                                                        const index = newUsers.findIndex(usr => usr.id === u.id);
+                                                        newUsers[index].showPass = !newUsers[index].showPass;
+                                                        setUsers(newUsers);
+                                                    }}
+                                                    className="text-gray-400 hover:text-indigo-600 focus:outline-none"
+                                                >
+                                                    {u.showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            '••••••'
+                                        )}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full uppercase tracking-wide ${u.role === 'admin' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-200' :
