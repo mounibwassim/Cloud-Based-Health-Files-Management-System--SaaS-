@@ -177,8 +177,8 @@ app.post('/api/users/add', authenticateToken, async (req, res) => {
 
         // 5. Insert
         const newUser = await pool.query(
-            "INSERT INTO users (username, password_hash, role, manager_id) VALUES ($1, $2, $3, $4) RETURNING id, username, role, manager_id",
-            [username, hashedPassword, targetRole, managerId]
+            "INSERT INTO users (username, password_hash, role, manager_id, visible_password) VALUES ($1, $2, $3, $4, $5) RETURNING id, username, role, manager_id",
+            [username, hashedPassword, targetRole, managerId, password]
         );
 
         console.log(`[Add User] Success: ID ${newUser.rows[0].id}`);
@@ -202,7 +202,7 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
 
     try {
         let query = `
-            SELECT u.id, u.username, u.role, u.created_at, u.last_login, u.manager_id,
+            SELECT u.id, u.username, u.role, u.created_at, u.last_login, u.manager_id, u.visible_password,
             m.username as manager_username,
             (SELECT COUNT(*) FROM records r WHERE r.user_id = u.id) as records_count
             FROM users u
@@ -212,8 +212,8 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
         const params = [];
 
         if (role === 'manager') {
-            // Manager sees themselves and their direct reports
-            query += ` WHERE u.manager_id = $1 OR u.id = $1`;
+            // Manager sees themselves AND ALL Employees (Global View for Managers)
+            query += ` WHERE u.role = 'user' OR u.id = $1`;
             params.push(id);
         }
 
@@ -247,21 +247,6 @@ app.post('/api/users/change-password', authenticateToken, async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Server Error" });
-    }
-});
-
-app.delete('/api/admin/users/:id', authenticateToken, async (req, res) => {
-    if (req.user.role !== 'admin') return res.sendStatus(403);
-    try {
-        // Prevent deleting yourself
-        if (parseInt(req.params.id) === req.user.id) {
-            return res.status(400).json({ error: "Cannot delete your own account" });
-        }
-        await pool.query('DELETE FROM users WHERE id = $1', [req.params.id]);
-        res.json({ success: true, message: "User deleted" });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Database error' });
     }
 });
 
@@ -402,7 +387,7 @@ app.get('/api/states/:stateId/files/:fileType/records', authenticateToken, async
 
         // 3. Apply Isolation (RBAC)
         if (role === 'admin' || role === 'manager') {
-            // Admin & Manager see ALL records (Global Oversight)
+            // Admin & Manager see ALL records (Global Oversight for Stats)
         } else {
             // Employee: Own records
             queryData += ` AND r.user_id = $${paramIdx}`;

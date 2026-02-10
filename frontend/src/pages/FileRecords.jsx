@@ -229,16 +229,30 @@ export default function FileRecords() {
 
         // 2. Background API Call
         try {
+            let savedRecord;
             if (isEdit) {
-                await api.put(`/records/${recordData.id}`, recordData);
+                const res = await api.put(`/records/${recordData.id}`, recordData);
+                savedRecord = res.data;
             } else {
-                await api.post('/records', recordData);
+                const res = await api.post('/records', recordData);
+                savedRecord = res.data;
             }
-            fetchRecords();
+
+            // Update state with REAL record from server (has correct ID, Serial, etc.)
+            setRecords(prev => {
+                if (isEdit) {
+                    return prev.map(r => r.id === savedRecord.id ? savedRecord : r);
+                }
+                // Prepend new record
+                return [savedRecord, ...prev];
+            });
+
+            // Optional: Fetch to ensure consistency, but we have the data now.
+            // fetchRecords(); 
         } catch (err) {
             console.error("Save failed", err);
             alert("Failed to save record remotely. The list will revert.");
-            fetchRecords();
+            fetchRecords(); // Revert on error
         }
     };
 
