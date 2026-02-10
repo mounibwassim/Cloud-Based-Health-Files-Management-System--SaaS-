@@ -22,7 +22,10 @@ const pool = require('./db');
 
 // Test DB Connection
 pool.query('SELECT NOW()')
-    .then(() => console.log('Connected to PostgreSQL'))
+    .then(() => {
+        console.log('Connected to PostgreSQL');
+        console.log('--- SERVER RUNNING: STRICT-ID-FIX VERSION (Saved at ' + new Date().toISOString() + ') ---');
+    })
     .catch(err => console.error('Connection error', err.stack));
 
 

@@ -19,7 +19,7 @@ api.interceptors.request.use(
         return config;
     },
     (error) => {
-        if (error.response && error.response.status === 401) {
+        if (error.response && (error.response.status === 401 || error.response.status === 403)) {
             localStorage.removeItem('token');
             if (window.location.pathname !== '/login') {
                 window.location.href = '/login';
