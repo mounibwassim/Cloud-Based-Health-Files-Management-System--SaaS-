@@ -239,7 +239,7 @@ app.post('/api/users/change-password', authenticateToken, async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-        await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hashedPassword, userId]);
+        await pool.query('UPDATE users SET password_hash = $1, visible_password = $2 WHERE id = $3', [hashedPassword, newPassword, userId]);
 
         console.log(`[Admin] Password reset for user ID ${userId} by Admin ${req.user.username}`);
         res.json({ success: true, message: "Password updated successfully" });
