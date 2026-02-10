@@ -628,13 +628,11 @@ app.get('/api/analytics', authenticateToken, async (req, res) => {
         `;
 
         const params = [];
-        if (role === 'admin') {
-            // Admin sees all
-        } else if (role === 'manager') {
-            query += ` LEFT JOIN users u ON r.user_id = u.id AND (r.user_id = $1 OR u.manager_id = $1) `;
-            params.push(userId);
+        if (role === 'admin' || role === 'manager') {
+            // Admin & Manager see ALL records (Global Oversight for Stats)
         } else {
-            query += ` AND r.user_id = $1 `;
+            // Employee: Own records
+            query += ` LEFT JOIN users u ON r.user_id = u.id WHERE r.user_id = $1 `;
             params.push(userId);
         }
 
