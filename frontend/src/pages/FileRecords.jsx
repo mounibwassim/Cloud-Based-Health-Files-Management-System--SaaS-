@@ -19,7 +19,7 @@ export default function FileRecords() {
     const [error, setError] = useState(null);
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
-    const [sortConfig, setSortConfig] = useState({ key: 'treatment_date', direction: 'desc' });
+    const [sortConfig, setSortConfig] = useState({ key: 'treatment_date', direction: 'asc' });
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingRecord, setEditingRecord] = useState(null);
 

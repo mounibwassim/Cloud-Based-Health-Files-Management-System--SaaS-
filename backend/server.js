@@ -400,7 +400,8 @@ app.get('/api/states/:stateId/files/:fileType/records', authenticateToken, async
             paramIdx++;
         }
 
-        queryData += ` ORDER BY r.treatment_date DESC`;
+        // queryData += ` ORDER BY r.treatment_date DESC`; // OLD
+        queryData += ` ORDER BY r.serial_number ASC, r.treatment_date ASC`; // NEW: Chronological / Serial Order
 
         const result = await pool.query(queryData, params);
         console.log(`[GET Records] Found ${result.rows.length} records.`);

@@ -6,7 +6,7 @@ const runAudit = async () => {
     try {
         console.log("🚨 STARTING EMERGENCY AUDIT...");
 
-        const sqlPath = path.join(__dirname, '../../deployment/emergency_audit.sql');
+        const sqlPath = path.join(__dirname, '../../deployment/backfill_serials.sql');
         const sql = fs.readFileSync(sqlPath, 'utf8');
 
         console.log("Executing SQL...");
