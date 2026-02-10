@@ -344,9 +344,11 @@ export default function FileRecords() {
                     </div>
                 ) : (
                     <div className="flex flex-col sm:flex-row justify-between items-center text-indigo-900 dark:text-indigo-100">
-                        <span className="font-bold text-lg">My Records: {records.length}</span>
+                        <span className="font-bold text-lg">
+                            {user?.role === 'manager' ? 'Total Records' : 'My Records'}: {records.length}
+                        </span>
                         <span className="text-sm opacity-80 mt-1 sm:mt-0">
-                            Viewing Your Data Only
+                            {user?.role === 'manager' ? 'Viewing Global Data (Manager)' : 'Viewing Your Data Only'}
                         </span>
                     </div>
                 )}
@@ -414,8 +416,8 @@ export default function FileRecords() {
                                     </th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Notes / Reason</th>
 
-                                    {/* STRICT VISIBILITY: ADMIN COLUMN */}
-                                    {user?.role === 'admin' && (
+                                    {/* STRICT VISIBILITY: ADMIN & MANAGER COLUMN */}
+                                    {(user?.role === 'admin' || user?.role === 'manager') && (
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created By</th>
                                     )}
 
@@ -458,8 +460,8 @@ export default function FileRecords() {
                                             )}
                                         </td>
 
-                                        {/* STRICT VISIBILITY: ADMIN COLUMN DATA */}
-                                        {user?.role === 'admin' && (
+                                        {/* STRICT VISIBILITY: ADMIN & MANAGER COLUMN DATA */}
+                                        {(user?.role === 'admin' || user?.role === 'manager') && (
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 dark:text-indigo-400 font-medium">
                                                 {/* Requires Backend Join ideally, fallback to ID if needed */}
                                                 {record.username || `User ${record.user_id}`}
@@ -483,7 +485,7 @@ export default function FileRecords() {
                                     </tr>
                                 )) : (
                                     <tr>
-                                        <td colSpan={user?.role === 'admin' ? 8 : 7} className="px-6 py-10 text-center text-gray-500 dark:text-gray-400">
+                                        <td colSpan={(user?.role === 'admin' || user?.role === 'manager') ? 8 : 7} className="px-6 py-10 text-center text-gray-500 dark:text-gray-400">
                                             No records found.
                                         </td>
                                     </tr>
