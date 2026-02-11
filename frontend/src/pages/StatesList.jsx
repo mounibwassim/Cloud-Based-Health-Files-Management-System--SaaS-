@@ -9,9 +9,10 @@ export default function StatesList() {
     const [error, setError] = useState(null);
 
     useEffect(() => {
-        const cached = sessionStorage.getItem('states_data');
+        // Cache Versioning: Use 'states_data_v2' to force refresh after structure change
+        const cached = sessionStorage.getItem('states_data_v2');
         if (cached) {
-            console.log('Using cached states');
+            console.log('Using cached states (v2)');
             setStates(JSON.parse(cached));
             setLoading(false);
             return;
@@ -21,7 +22,7 @@ export default function StatesList() {
         api.get('/states')
             .then(res => {
                 setStates(res.data);
-                sessionStorage.setItem('states_data', JSON.stringify(res.data));
+                sessionStorage.setItem('states_data_v2', JSON.stringify(res.data));
                 setLoading(false);
             })
             .catch(err => {
